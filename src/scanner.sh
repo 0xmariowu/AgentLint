@@ -183,11 +183,28 @@ should_skip_reference() {
     return 0
   fi
 
-  if [[ "$ref" == 'feature/*' || "$ref" == 'fix/*' ]]; then
+  if [[ "$ref" == 'feature/*' || "$ref" == 'fix/*' || "$ref" == 'chore/*' ]]; then
     return 0
   fi
 
   if [[ "$ref" =~ ^/[A-Za-z0-9_-]+$ ]]; then
+    return 0
+  fi
+
+  # Skip common rule-text fragments that look like paths but aren't
+  case "$ref" in
+    .env*|__pycache__*|node_modules*|.git/*)
+      return 0 ;;
+    *'`'*|*')'*|*'('*)
+      return 0 ;;
+    -A*|-a*|--*)
+      return 0 ;;
+    *.md,*|*.,|*.\`)
+      return 0 ;;
+  esac
+
+  # Skip very short fragments (likely not real paths)
+  if [ "${#ref}" -le 2 ]; then
     return 0
   fi
 
