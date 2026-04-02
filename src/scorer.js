@@ -119,12 +119,12 @@ function calculateTotalScore(dimensions, dimensionsConfig) {
     const dim = dimensions[name];
     const weight = Number(cfg.weight);
     if (!Number.isFinite(weight) || weight < 0) continue;
-    numerator += dim.score * weight;
+    numerator += (dim.score / dim.max) * weight;
     denominator += weight;
   }
 
   if (denominator === 0) return 0;
-  return Math.round(numerator / denominator);
+  return Math.round((numerator / denominator) * 100);
 }
 
 function addCheckContribution(stateMap, record, checkWeights, dimensionsConfig, thresholds) {
