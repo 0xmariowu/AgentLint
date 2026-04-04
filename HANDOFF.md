@@ -1,10 +1,11 @@
 # Handoff
 
 ## main (updated 2026-04-04)
-**What**: AgentLint v0.1.4 — released, repo cleaned
-**Status**: Published and functional. 69 tests (24 unit + 45 E2E), Docker E2E verified.
+**What**: AgentLint v0.3.0 — 31 checks, 5 dimensions (including Safety), HTML report
+**Status**: Published. 24 unit + 45 E2E tests. Docker E2E verified. 10 real repos validated.
 
 **Next**:
-1. Add tests for deep-analyzer.js and session-analyzer.js
-2. Add scanner individual check tests (F2-F6, I1-I6, W1-W4, C1-C4)
-3. Consider project selection UX (let user pick which projects to scan)
+1. Run `/al` in real Claude Code session (full UX verification)
+2. Update ~/.claude/settings.json enabledPlugins from harness-health to agent-lint
+3. Add Safety check fixtures to E2E tests
+4. Consider new checks: single-test invocation (I8), shallow clone warning (W7)
