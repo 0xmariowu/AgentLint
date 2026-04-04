@@ -2,7 +2,7 @@
 # F002.S4: Run scanner on 20 repos, compare with labels.json, output confusion matrix.
 # Usage: bash tests/accuracy/run-accuracy.sh
 
-set -u
+set -euo pipefail
 
 ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCANNER="${ROOT_DIR}/src/scanner.sh"

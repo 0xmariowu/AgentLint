@@ -4,7 +4,7 @@
 # - Script syntax is valid bash
 # - No macOS-only commands
 # - Plugin structure is correct for manual install
-set -u
+set -euo pipefail
 
 ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 INSTALL="${ROOT_DIR}/scripts/install.sh"

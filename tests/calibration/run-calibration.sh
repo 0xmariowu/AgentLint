@@ -2,7 +2,7 @@
 # F004: Score calibration — run scorer on tiered repos, analyze tier separation.
 # Usage: bash tests/calibration/run-calibration.sh
 
-set -u
+set -euo pipefail
 
 ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCANNER="${ROOT_DIR}/src/scanner.sh"

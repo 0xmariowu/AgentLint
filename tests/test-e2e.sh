@@ -2,7 +2,7 @@
 # End-to-end test simulating an external user.
 # Creates isolated temp projects and runs the full pipeline.
 
-set -u
+set -euo pipefail
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SCANNER="${ROOT_DIR}/src/scanner.sh"

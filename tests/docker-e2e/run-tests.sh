@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Full pipeline E2E test using real corpus data.
 # Runs inside Docker container. Tests all 10 verification items.
-set -u
+set -euo pipefail
 
 ROOT="/app"
 PROJECTS="/home/testuser/Projects"

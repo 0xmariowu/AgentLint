@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # F005: Session analyzer robustness test.
 # Verifies session-analyzer.js handles edge cases without crashing.
-set -u
+set -euo pipefail
 
 ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 SESSION="${ROOT_DIR}/src/session-analyzer.js"

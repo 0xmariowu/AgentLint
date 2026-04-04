@@ -3,7 +3,7 @@
 # Only includes files scanner needs — no history.json, no _other, no _meta.json.
 # Usage: bash tests/docker-e2e/package-full-corpus.sh
 
-set -eu
+set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CORPUS="${AL_CORPUS_DIR:?ERROR: Set AL_CORPUS_DIR to your corpus directory}"

@@ -3,7 +3,7 @@
 # Captures git diff for each repo, analyzes for unexpected modifications.
 # Usage: bash tests/fixer-safety/run-fixer-safety.sh [--repos-file PATH]
 
-set -u
+set -euo pipefail
 
 ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCANNER="${ROOT_DIR}/src/scanner.sh"

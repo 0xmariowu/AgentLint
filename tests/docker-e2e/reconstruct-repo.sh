@@ -2,7 +2,7 @@
 # Reconstructs a scannable git repo from corpus data.
 # Usage: bash reconstruct-repo.sh <corpus-repo-dir> <output-dir>
 
-set -eu
+set -euo pipefail
 
 CORPUS_REPO="$1"
 OUTPUT_DIR="$2"

@@ -3,7 +3,7 @@
 # Output: tests/accuracy/labels.json
 # These labels are the GROUND TRUTH — independent of scanner output.
 
-set -u
+set -euo pipefail
 
 ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 CORPUS_DIR="${AL_CORPUS_DIR:?ERROR: Set AL_CORPUS_DIR to your corpus directory}"

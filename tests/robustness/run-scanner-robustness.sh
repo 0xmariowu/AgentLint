@@ -3,7 +3,7 @@
 # Checks: no crashes, no hangs (30s timeout), valid JSONL output.
 # Usage: bash tests/robustness/run-scanner-robustness.sh [--edge-only | --corpus-only]
 
-set -u
+set -euo pipefail
 
 ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCANNER="${ROOT_DIR}/src/scanner.sh"

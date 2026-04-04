@@ -2,7 +2,7 @@
 # Packages selected corpus repos into a tarball for Docker build.
 # Usage: bash tests/docker-e2e/package-corpus.sh
 
-set -eu
+set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 CORPUS="${AL_CORPUS_DIR:?ERROR: Set AL_CORPUS_DIR to your corpus directory}"

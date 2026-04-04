@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
-const DEFAULT_PROJECTS_ROOT = expandPath('~/Projects');
+const DEFAULT_PROJECTS_ROOT = process.env.PROJECTS_ROOT ? process.env.PROJECTS_ROOT : expandPath('~/Projects');
 const CLAUDE_PROJECTS_ROOT = expandPath('~/.claude/projects');
 const DEFAULT_MAX_SESSIONS = 30;
 const MIN_SUBSTRING_LEN = 20;

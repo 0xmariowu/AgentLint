@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # F004: Deep analyzer prompt generation test.
-set -u
+set -euo pipefail
 
 ROOT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 DEEP="${ROOT_DIR}/src/deep-analyzer.js"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Reconstructs all corpus repos from /tmp/corpus-raw into /home/testuser/Projects
-set -u
+set -euo pipefail
 
 RAW="/tmp/corpus-raw"
 OUT="/home/testuser/Projects"

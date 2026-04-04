@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Full corpus scanner+scorer test — runs on all reconstructed repos.
 # Outputs results.json with per-repo scores and summary statistics.
-set -u
+set -euo pipefail
 
 ROOT="/app"
 PROJECTS="/home/testuser/Projects"

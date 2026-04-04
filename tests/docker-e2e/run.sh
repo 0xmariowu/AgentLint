@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-click Docker E2E test with real corpus data.
 # Usage: bash tests/docker-e2e/run.sh
-set -eu
+set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(CDPATH='' cd -- "${SCRIPT_DIR}/../.." && pwd)"
