@@ -4,7 +4,7 @@
 
 33 checks. Two new safety checks, hardened dev workflow.
 
-- New: S7 — detects personal filesystem paths (`/Users/xxx/`, `/home/xxx/`) in source files
+- New: S7 — detects personal filesystem paths in source files
 - New: S8 — detects `pull_request_target` trigger in GitHub Actions workflows
 - New: pre-commit hook with author whitelist, codename scan, PII scan, secret detection, shellcheck
 - New: CI author-email check — validates commit author uses noreply email and pseudonym
