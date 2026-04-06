@@ -119,7 +119,7 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/v}"
           METADATA=$(cat release-metadata.json | jq -c .)
 
-          gh workflow run sync-from-release.yml \
+          gh workflow run sync-release.yml \
             --repo 0xmariowu/agent-lint-simple-green \
             -f version="$VERSION" \
             -f metadata="$METADATA"
