@@ -12,6 +12,10 @@ const config = {
   onBrokenMarkdownLinks: 'warn',
   trailingSlash: false,
 
+  markdown: {
+    format: 'md',
+  },
+
   presets: [
     [
       '@docusaurus/preset-classic',
@@ -21,7 +25,7 @@ const config = {
           routeBasePath: '/',
           sidebarPath: './sidebars.js',
           path: 'content',
-          editUrl: 'https://github.com/0xmariowu/AgentLint/edit/main/docs/content/',
+          editUrl: 'https://github.com/0xmariowu/agent-lint/edit/main/docs/content/',
         },
         blog: false,
         theme: {
