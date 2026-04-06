@@ -41,6 +41,28 @@ jobs:
             fi
           fi
 
+      - name: Validate content sync
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          # Recompute check count from weights.json (source of truth)
+          ACTUAL_CHECKS=$(python3 -c "import json; print(len(json.load(open('standards/weights.json'))['check_weights']))")
+          META_CHECKS=$(python3 -c "import json; print(json.load(open('release-metadata.json'))['check_count'])")
+
+          if [ "$ACTUAL_CHECKS" != "$META_CHECKS" ]; then
+            echo "::error::release-metadata.json check_count ($META_CHECKS) != actual ($ACTUAL_CHECKS)"
+            echo "::error::Run: scripts/bump-version.sh"
+            exit 1
+          fi
+
+          # README must contain correct check count
+          if ! grep -q "checks-${ACTUAL_CHECKS}-" README.md; then
+            echo "::error::README.md badge does not contain checks-${ACTUAL_CHECKS}"
+            echo "::error::Run: scripts/bump-version.sh"
+            exit 1
+          fi
+
+          echo "Validated: check_count=$ACTUAL_CHECKS (metadata + README in sync)"
+
       - name: Extract changelog for this version
         if: steps.check.outputs.exists == 'false'
         id: changelog
@@ -95,21 +117,22 @@ jobs:
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
           METADATA=$(cat release-metadata.json | jq -c .)
-          CHANGELOG=$(cat CHANGELOG.md | base64 -w0)
-          CHECKS=$(cat docs-source/checks.md 2>/dev/null || echo "" | base64 -w0)
-          SCORING=$(cat docs-source/scoring.md 2>/dev/null || echo "" | base64 -w0)
-          SECURITY=$(cat SECURITY.md | base64 -w0)
-          CONTRIBUTING=$(cat CONTRIBUTING.md | base64 -w0)
+          CHANGELOG=$(base64 -i CHANGELOG.md)
+          SECURITY=$(base64 -i SECURITY.md)
+          CONTRIBUTING=$(base64 -i CONTRIBUTING.md)
 
-          gh workflow run sync-from-release.yml \
-            --repo 0xmariowu/AgentLint \
-            -f version="$VERSION" \
-            -f metadata="$METADATA" \
-            -f changelog_b64="$CHANGELOG" \
-            -f security_b64="$SECURITY" \
-            -f contributing_b64="$CONTRIBUTING"
-
-          echo "Triggered docs sync for v${VERSION}"
+          if [ -n "$GH_TOKEN" ]; then
+            gh workflow run sync-from-release.yml \
+              --repo 0xmariowu/AgentLint \
+              -f version="$VERSION" \
+              -f metadata="$METADATA" \
+              -f changelog_b64="$CHANGELOG" \
+              -f security_b64="$SECURITY" \
+              -f contributing_b64="$CONTRIBUTING" \
+              || echo "::warning::Docs sync failed (check CROSS_REPO_TOKEN)"
+          else
+            echo "::warning::Skipping docs sync (CROSS_REPO_TOKEN not configured)"
+          fi
 
       - name: Sync to website repo (agent-lint-simple-green)
         if: steps.check.outputs.exists == 'false'
@@ -119,9 +142,23 @@ jobs:
           VERSION="${GITHUB_REF#refs/tags/v}"
           METADATA=$(cat release-metadata.json | jq -c .)
 
-          gh workflow run sync-release.yml \
-            --repo 0xmariowu/agent-lint-simple-green \
-            -f version="$VERSION" \
-            -f metadata="$METADATA"
+          if [ -n "$GH_TOKEN" ]; then
+            gh workflow run sync-release.yml \
+              --repo 0xmariowu/agent-lint-simple-green \
+              -f version="$VERSION" \
+              -f metadata="$METADATA" \
+              || echo "::warning::Website sync failed (check CROSS_REPO_TOKEN)"
+          else
+            echo "::warning::Skipping website sync (CROSS_REPO_TOKEN not configured)"
+          fi
 
-          echo "Triggered website sync for v${VERSION}"
+      - name: Summary
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          {
+            echo "## Released ${VERSION}"
+            echo "- GitHub Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${TAG}"
+            echo "- npm: [@0xmariowu/agent-lint@${VERSION}](https://www.npmjs.com/package/@0xmariowu/agent-lint)"
+          } >> "$GITHUB_STEP_SUMMARY"
