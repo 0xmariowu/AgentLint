@@ -115,7 +115,14 @@ sed -i '' "s|checks-[0-9]*-|checks-${check_count}-|g" "$README"
 sed -i '' "s|[0-9]* checks, every one backed|${check_count} checks, every one backed|" "$README"
 echo "  README.md: badge → checks-${check_count}"
 
-# ── 4. Summary ────────────────────────────────────────────────────
+# ── 4. Sync root docs to docs/content/ (GitBook source) ──────────
+
+cp "$ROOT/CHANGELOG.md" "$ROOT/docs/content/changelog.md"
+cp "$ROOT/SECURITY.md" "$ROOT/docs/content/security.md"
+cp "$ROOT/CONTRIBUTING.md" "$ROOT/docs/content/contributing.md"
+echo "  docs/content/: synced changelog, security, contributing"
+
+# ── 5. Summary ────────────────────────────────────────────────────
 
 echo ""
 echo "Updated:"
@@ -126,14 +133,14 @@ echo "  $NPM_PACKAGE → $new"
 echo "  $SECURITY → supported versions"
 echo "  $README → badge + check count"
 echo "  $ROOT/release-metadata.json → regenerated"
+echo "  docs/content/ → synced from root"
 echo ""
 echo "Next steps:"
-echo "  1. Update CHANGELOG.md with release notes"
+echo "  1. Update CHANGELOG.md, then re-run this script (to sync to docs/)"
 echo "  2. git add -A && git commit -m \"chore: bump version to $new\""
 echo "  3. git tag v$new"
 echo "  4. git push && git push --tags"
 echo ""
-echo "After tag push, release.yml will automatically:"
-echo "  - Create GitHub Release + publish to npm"
-echo "  - Sync docs to AgentLint repo (docs.agentlint.app)"
-echo "  - Sync metadata to website repo (www.agentlint.app)"
+echo "After push:"
+echo "  - GitBook auto-syncs docs/content/ → docs.agentlint.app"
+echo "  - release.yml: GitHub Release + npm publish + website sync"
