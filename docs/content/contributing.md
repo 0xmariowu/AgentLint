@@ -1,3 +1,8 @@
+---
+title: Contributing
+sidebar_position: 4
+---
+
 # Contributing
 
 Thanks for your interest in AgentLint! Here's how to help.

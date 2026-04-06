@@ -1,4 +1,7 @@
 node_modules/
+docs/build/
+docs/.docusaurus/
+docs/.cache-loader/
 .DS_Store
 *.log
 reports/
