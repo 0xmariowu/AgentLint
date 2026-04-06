@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.3 (2026-04-06)
+
+Release pipeline test. No functional changes.
+
+- Test: full release pipeline verification (bump → CI → docs → website)
+
 ## v0.4.2 (2026-04-06)
 
 Docs site consolidated, release pipeline simplified.
