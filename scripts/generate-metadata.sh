@@ -7,8 +7,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export ROOT
 WEIGHTS="$ROOT/standards/weights.json"
-PLUGIN="$ROOT/.claude-plugin/plugin.json"
-OUTPUT="$ROOT/release-metadata.json"
 
 if [ ! -f "$WEIGHTS" ]; then
   echo "Error: $WEIGHTS not found" >&2
