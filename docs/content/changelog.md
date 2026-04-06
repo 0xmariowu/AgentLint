@@ -1,8 +1,3 @@
----
-title: Changelog
-sidebar_position: 6
----
-
 # Changelog
 
 ## v0.4.2 (2026-04-06)

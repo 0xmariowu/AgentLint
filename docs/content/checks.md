@@ -1,8 +1,3 @@
----
-title: Check Reference
-sidebar_position: 2
----
-
 # Check Reference
 
 ## Findability

@@ -1,8 +1,3 @@
----
-title: Security Policy
-sidebar_position: 5
----
-
 # Security Policy
 
 ## Supported versions

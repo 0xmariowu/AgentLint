@@ -1,8 +1,3 @@
----
-title: Scoring Algorithm
-sidebar_position: 3
----
-
 # Scoring Algorithm
 
 `scanner.sh` emits one JSON record per check with `measured_value`, optional `reference_value`, and a raw `score`. `scorer.js` coerces those raw scores, applies weights, and produces dimension and total scores.

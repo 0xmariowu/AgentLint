@@ -1,9 +1,3 @@
----
-title: Introduction
-sidebar_position: 1
-slug: /
----
-
 # AgentLint
 
 **Your AI agent is only as good as your repo.** AgentLint finds what's broken — file structure, instruction quality, build setup, session continuity, security posture — and fixes it. 33 checks, every one backed by data.
