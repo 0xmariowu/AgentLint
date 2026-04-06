@@ -113,25 +113,39 @@ jobs:
       - name: Sync to docs repo (AgentLint)
         if: steps.check.outputs.exists == 'false'
         env:
-          GH_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
+          CROSS_REPO_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
         run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
-          METADATA=$(cat release-metadata.json | jq -c .)
-          CHANGELOG=$(base64 -i CHANGELOG.md)
-          SECURITY=$(base64 -i SECURITY.md)
-          CONTRIBUTING=$(base64 -i CONTRIBUTING.md)
-
-          if [ -n "$GH_TOKEN" ]; then
-            gh workflow run sync-from-release.yml \
-              --repo 0xmariowu/AgentLint \
-              -f version="$VERSION" \
-              -f metadata="$METADATA" \
-              -f changelog_b64="$CHANGELOG" \
-              -f security_b64="$SECURITY" \
-              -f contributing_b64="$CONTRIBUTING" \
-              || echo "::warning::Docs sync failed (check CROSS_REPO_TOKEN)"
-          else
+          if [ -z "$CROSS_REPO_TOKEN" ]; then
             echo "::warning::Skipping docs sync (CROSS_REPO_TOKEN not configured)"
+            exit 0
+          fi
+
+          VERSION="${GITHUB_REF#refs/tags/v}"
+
+          git clone "https://x-access-token:${CROSS_REPO_TOKEN}@github.com/0xmariowu/AgentLint.git" /tmp/docs-repo
+          cd /tmp/docs-repo
+
+          # Update changelog
+          printf -- '---\ntitle: Changelog\nsidebar_position: 6\n---\n\n' > docs/content/changelog.md
+          cat "$GITHUB_WORKSPACE/CHANGELOG.md" >> docs/content/changelog.md
+
+          # Update security
+          printf -- '---\ntitle: Security Policy\nsidebar_position: 5\n---\n\n' > docs/content/security.md
+          cat "$GITHUB_WORKSPACE/SECURITY.md" >> docs/content/security.md
+
+          # Update contributing
+          printf -- '---\ntitle: Contributing\nsidebar_position: 4\n---\n\n' > docs/content/contributing.md
+          cat "$GITHUB_WORKSPACE/CONTRIBUTING.md" >> docs/content/contributing.md
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/content/
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "docs: sync content from agent-lint v${VERSION}"
+            git push
+            echo "Pushed docs sync for v${VERSION}"
           fi
 
       - name: Sync to website repo (agent-lint-simple-green)
