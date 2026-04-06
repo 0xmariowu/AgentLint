@@ -8,9 +8,14 @@ const config = {
   baseUrl: '/',
   organizationName: '0xmariowu',
   projectName: 'AgentLint',
+  favicon: 'img/favicon.svg',
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
   trailingSlash: false,
+
+  markdown: {
+    format: 'md',
+  },
 
   presets: [
     [
@@ -21,7 +26,7 @@ const config = {
           routeBasePath: '/',
           sidebarPath: './sidebars.js',
           path: 'content',
-          editUrl: 'https://github.com/0xmariowu/AgentLint/edit/main/docs/content/',
+          editUrl: 'https://github.com/0xmariowu/agent-lint/edit/main/docs/content/',
         },
         blog: false,
         theme: {

@@ -44,7 +44,6 @@ jobs:
       - name: Validate content sync
         if: steps.check.outputs.exists == 'false'
         run: |
-          # Recompute check count from weights.json (source of truth)
           ACTUAL_CHECKS=$(python3 -c "import json; print(len(json.load(open('standards/weights.json'))['check_weights']))")
           META_CHECKS=$(python3 -c "import json; print(json.load(open('release-metadata.json'))['check_count'])")
 
@@ -54,7 +53,6 @@ jobs:
             exit 1
           fi
 
-          # README must contain correct check count
           if ! grep -q "checks-${ACTUAL_CHECKS}-" README.md; then
             echo "::error::README.md badge does not contain checks-${ACTUAL_CHECKS}"
             echo "::error::Run: scripts/bump-version.sh"
@@ -109,44 +107,6 @@ jobs:
           npm publish --access public
           rm -f .npmrc
           echo "Published @0xmariowu/agent-lint@${VERSION} to npm"
-
-      - name: Sync to docs repo (AgentLint)
-        if: steps.check.outputs.exists == 'false'
-        env:
-          CROSS_REPO_TOKEN: ${{ secrets.CROSS_REPO_TOKEN }}
-        run: |
-          if [ -z "$CROSS_REPO_TOKEN" ]; then
-            echo "::warning::Skipping docs sync (CROSS_REPO_TOKEN not configured)"
-            exit 0
-          fi
-
-          VERSION="${GITHUB_REF#refs/tags/v}"
-
-          git clone "https://x-access-token:${CROSS_REPO_TOKEN}@github.com/0xmariowu/AgentLint.git" /tmp/docs-repo
-          cd /tmp/docs-repo
-
-          # Update changelog
-          printf -- '---\ntitle: Changelog\nsidebar_position: 6\n---\n\n' > docs/content/changelog.md
-          cat "$GITHUB_WORKSPACE/CHANGELOG.md" >> docs/content/changelog.md
-
-          # Update security
-          printf -- '---\ntitle: Security Policy\nsidebar_position: 5\n---\n\n' > docs/content/security.md
-          cat "$GITHUB_WORKSPACE/SECURITY.md" >> docs/content/security.md
-
-          # Update contributing
-          printf -- '---\ntitle: Contributing\nsidebar_position: 4\n---\n\n' > docs/content/contributing.md
-          cat "$GITHUB_WORKSPACE/CONTRIBUTING.md" >> docs/content/contributing.md
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/content/
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "docs: sync content from agent-lint v${VERSION}"
-            git push
-            echo "Pushed docs sync for v${VERSION}"
-          fi
 
       - name: Sync to website repo (agent-lint-simple-green)
         if: steps.check.outputs.exists == 'false'
