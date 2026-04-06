@@ -12,7 +12,7 @@
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/0xmariowu/agent-lint/main/scripts/install.sh | bash
+npm install -g @0xmariowu/agent-lint
 ```
 
 Then start a new Claude Code session:
