@@ -5,6 +5,17 @@ sidebar_position: 6
 
 # Changelog
 
+## v0.4.2 (2026-04-06)
+
+Docs site consolidated, release pipeline simplified.
+
+- Changed: Docusaurus docs moved into main repo (was separate AgentLint repo)
+- Changed: Push to main auto-deploys docs via GitHub Pages workflow
+- Changed: Release pipeline no longer needs cross-repo sync for docs
+- Changed: Release validates check_count consistency (weights.json vs metadata vs README)
+- New: SVG favicon (green A on brand color)
+- Fix: MDX angle-bracket parsing (switched to markdown format)
+
 ## v0.4.1 (2026-04-06)
 
 Docs site, npm fixes, release automation.
