@@ -1,0 +1,83 @@
+name: Accuracy
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/scanner.sh'
+      - 'tests/accuracy/**'
+      - '.github/workflows/accuracy.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  accuracy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Download corpus tarball
+        id: download
+        run: |
+          if gh release download corpus-v1 \
+            --pattern 'corpus-full.tar.gz' \
+            --dir /tmp \
+            --repo ${{ github.repository }}; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Corpus tarball not found — skipping accuracy test"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Reconstruct repos
+        if: steps.download.outputs.found == 'true'
+        run: |
+          mkdir -p /tmp/corpus-raw /tmp/corpus-repos
+          tar -xzf /tmp/corpus-full.tar.gz -C /tmp/corpus-raw
+
+          # Reconstruct in parallel (4 workers)
+          find /tmp/corpus-raw -mindepth 1 -maxdepth 1 -type d | \
+            xargs -P 4 -I{} bash tests/docker-e2e/reconstruct-repo.sh {} /tmp/corpus-repos/$(basename {})
+
+          echo "Reconstructed $(ls /tmp/corpus-repos | wc -l) repos"
+
+      - name: Run scanner on all repos
+        if: steps.download.outputs.found == 'true'
+        run: |
+          RESULTS=/tmp/scanner-results.jsonl
+          > "$RESULTS"
+
+          for repo_dir in /tmp/corpus-repos/*/; do
+            [ -d "$repo_dir" ] || continue
+            bash src/scanner.sh --project-dir "$repo_dir" >> "$RESULTS" 2>/dev/null || true
+          done
+
+          lines=$(wc -l < "$RESULTS" | tr -d ' ')
+          echo "Scanner produced $lines result lines"
+
+      - name: Compare with ground truth
+        if: steps.download.outputs.found == 'true'
+        run: |
+          node tests/accuracy/compare-results.js \
+            /tmp/scanner-results.jsonl \
+            --baseline tests/accuracy/accuracy-baseline.json \
+            || { echo "::error::Accuracy regression detected"; exit 1; }
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: accuracy-results
+          path: /tmp/scanner-results-accuracy.json
