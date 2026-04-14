@@ -352,11 +352,16 @@ extract_references() {
     # Skip inline code, bare paths in prose, and list items with paths as descriptions
     rest="$line"
     while [[ "$rest" =~ $md_link_regex ]]; do
-      candidate="$(normalize_reference "${BASH_REMATCH[1]}")"
+      # Cache match groups before calling helpers — normalize_reference
+      # and looks_like_reference invoke their own [[ =~ ]] which resets
+      # BASH_REMATCH, and `set -u` at file top would then fail on [0]/[1].
+      local match0="${BASH_REMATCH[0]}"
+      local match1="${BASH_REMATCH[1]}"
+      candidate="$(normalize_reference "$match1")"
       if looks_like_reference "$candidate"; then
         printf '%s\n' "$candidate"
       fi
-      rest="${rest#*"${BASH_REMATCH[0]}"}"
+      rest="${rest#*"$match0"}"
     done
   done < "$entry_file" | sort -u
 }
