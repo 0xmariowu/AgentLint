@@ -825,6 +825,189 @@ run_test "H6: hook without network calls → 1.0" test_h6_clean_hook
 run_test "H6: hook with curl → 0" test_h6_network_hook
 run_test "H6: no hooks configured → 1.0" test_h6_no_hooks
 
+# ─── New checks: F8, F9, I8 (v0.6.0 PR 6) ───
+
+# ── F8: rule file frontmatter ──
+
+F8_GLOBS_DIR="${TEMP_ROOT}/f8-globs"
+mkdir -p "${F8_GLOBS_DIR}/.claude/rules"
+git -C "${F8_GLOBS_DIR}" init --quiet 2>/dev/null || true
+echo "# P" > "${F8_GLOBS_DIR}/CLAUDE.md"
+cat > "${F8_GLOBS_DIR}/.claude/rules/ts.md" <<'F8FIX'
+---
+description: TypeScript
+globs: **/*.ts
+---
+# Rules
+F8FIX
+
+F8_PATHS_DIR="${TEMP_ROOT}/f8-paths"
+mkdir -p "${F8_PATHS_DIR}/.claude/rules"
+git -C "${F8_PATHS_DIR}" init --quiet 2>/dev/null || true
+echo "# P" > "${F8_PATHS_DIR}/CLAUDE.md"
+cat > "${F8_PATHS_DIR}/.claude/rules/py.md" <<'F8FIX'
+---
+description: Python
+paths: src/**/*.py
+---
+# Rules
+F8FIX
+
+F8_NO_RULES_DIR="${TEMP_ROOT}/f8-no-rules"
+mkdir -p "${F8_NO_RULES_DIR}"
+git -C "${F8_NO_RULES_DIR}" init --quiet 2>/dev/null || true
+echo "# P" > "${F8_NO_RULES_DIR}/CLAUDE.md"
+
+test_f8_all_globs() {
+  local out="${TEMP_ROOT}/f8-globs.jsonl"
+  run_scanner "${F8_GLOBS_DIR}" "$out" "${TEMP_ROOT}/f8g.stderr" || return 1
+  local score
+  score="$(extract_check_score "$out" "F8")" || { TEST_ERROR="F8 not found"; return 1; }
+  if [ "$score" != "1" ]; then TEST_ERROR="F8 all-globs should be 1 (got ${score})"; return 1; fi
+}
+
+test_f8_uses_paths() {
+  local out="${TEMP_ROOT}/f8-paths.jsonl"
+  run_scanner "${F8_PATHS_DIR}" "$out" "${TEMP_ROOT}/f8p.stderr" || return 1
+  local score
+  score="$(extract_check_score "$out" "F8")" || { TEST_ERROR="F8 not found"; return 1; }
+  if [ "$score" != "0" ]; then TEST_ERROR="F8 paths: should be 0 (got ${score})"; return 1; fi
+}
+
+test_f8_no_rules() {
+  local out="${TEMP_ROOT}/f8-no-rules.jsonl"
+  run_scanner "${F8_NO_RULES_DIR}" "$out" "${TEMP_ROOT}/f8nr.stderr" || return 1
+  local score
+  score="$(extract_check_score "$out" "F8")" || { TEST_ERROR="F8 not found"; return 1; }
+  if [ "$score" != "1" ]; then TEST_ERROR="F8 no rules dir should be 1 (got ${score})"; return 1; fi
+}
+
+run_test "F8: rule frontmatter uses globs → 1.0" test_f8_all_globs
+run_test "F8: rule frontmatter uses paths → 0" test_f8_uses_paths
+run_test "F8: no .claude/rules dir → 1.0" test_f8_no_rules
+
+# ── F9: template placeholders ──
+
+F9_CLEAN="${TEMP_ROOT}/f9-clean"
+mkdir -p "${F9_CLEAN}"
+git -C "${F9_CLEAN}" init --quiet 2>/dev/null || true
+cat > "${F9_CLEAN}/CLAUDE.md" <<'F9FIX'
+# My Actual Project Name
+
+This project handles order processing for the warehouse team.
+
+## Rules
+- Follow existing conventions
+
+See [Contributing](CONTRIBUTING.md) for details.
+F9FIX
+
+F9_PLACEHOLDER="${TEMP_ROOT}/f9-placeholder"
+mkdir -p "${F9_PLACEHOLDER}"
+git -C "${F9_PLACEHOLDER}" init --quiet 2>/dev/null || true
+cat > "${F9_PLACEHOLDER}/CLAUDE.md" <<'F9FIX'
+# [your project name]
+This is a <framework> project.
+TODO: fill in description
+F9FIX
+
+F9_LINK_ONLY="${TEMP_ROOT}/f9-link-only"
+mkdir -p "${F9_LINK_ONLY}"
+git -C "${F9_LINK_ONLY}" init --quiet 2>/dev/null || true
+cat > "${F9_LINK_ONLY}/CLAUDE.md" <<'F9FIX'
+# Real Project
+See [your guide](./GUIDE.md) and [project docs](./docs).
+F9FIX
+
+test_f9_clean() {
+  local out="${TEMP_ROOT}/f9-clean.jsonl"
+  run_scanner "${F9_CLEAN}" "$out" "${TEMP_ROOT}/f9c.stderr" || return 1
+  local score
+  score="$(extract_check_score "$out" "F9")" || { TEST_ERROR="F9 not found"; return 1; }
+  if [ "$score" != "1" ]; then TEST_ERROR="F9 clean file should be 1 (got ${score})"; return 1; fi
+}
+
+test_f9_placeholders_detected() {
+  local out="${TEMP_ROOT}/f9-ph.jsonl"
+  run_scanner "${F9_PLACEHOLDER}" "$out" "${TEMP_ROOT}/f9p.stderr" || return 1
+  local score
+  score="$(extract_check_score "$out" "F9")" || { TEST_ERROR="F9 not found"; return 1; }
+  if [ "$score" != "0" ]; then TEST_ERROR="F9 with placeholders should be 0 (got ${score})"; return 1; fi
+}
+
+test_f9_markdown_links_not_flagged() {
+  local out="${TEMP_ROOT}/f9-link.jsonl"
+  run_scanner "${F9_LINK_ONLY}" "$out" "${TEMP_ROOT}/f9l.stderr" || return 1
+  local score
+  score="$(extract_check_score "$out" "F9")" || { TEST_ERROR="F9 not found"; return 1; }
+  if [ "$score" != "1" ]; then TEST_ERROR="F9 markdown links should NOT trigger (got ${score})"; return 1; fi
+}
+
+run_test "F9: clean CLAUDE.md → 1.0" test_f9_clean
+run_test "F9: template placeholders → 0" test_f9_placeholders_detected
+run_test "F9: markdown links not false-positive → 1.0" test_f9_markdown_links_not_flagged
+
+# ── I8: total injected content ──
+
+I8_SMALL="${TEMP_ROOT}/i8-small"
+mkdir -p "${I8_SMALL}"
+git -C "${I8_SMALL}" init --quiet 2>/dev/null || true
+# Produce ~10 lines
+{ echo "# Tiny project"; for i in $(seq 1 8); do echo "line $i"; done; } > "${I8_SMALL}/CLAUDE.md"
+
+I8_GOOD="${TEMP_ROOT}/i8-good"
+mkdir -p "${I8_GOOD}"
+git -C "${I8_GOOD}" init --quiet 2>/dev/null || true
+# Produce ~100 lines (within [60, 200])
+{ echo "# Project"; for i in $(seq 1 99); do echo "line $i"; done; } > "${I8_GOOD}/CLAUDE.md"
+
+I8_HUGE="${TEMP_ROOT}/i8-huge"
+mkdir -p "${I8_HUGE}/.claude/rules"
+git -C "${I8_HUGE}" init --quiet 2>/dev/null || true
+{ echo "# Project"; for i in $(seq 1 100); do echo "line $i"; done; } > "${I8_HUGE}/CLAUDE.md"
+# Add 10 rules files of 50 lines each = 500 more lines → total ~600
+for n in $(seq 1 10); do
+  { for i in $(seq 1 50); do echo "rule line $i"; done; } > "${I8_HUGE}/.claude/rules/rule${n}.md"
+done
+
+test_i8_small_below_range() {
+  local out="${TEMP_ROOT}/i8-small.jsonl"
+  run_scanner "${I8_SMALL}" "$out" "${TEMP_ROOT}/i8s.stderr" || return 1
+  local score
+  score="$(extract_check_score "$out" "I8")" || { TEST_ERROR="I8 not found"; return 1; }
+  if node -e "process.exit(Number(process.argv[1]) < 1 ? 0 : 1)" "$score"; then
+    return 0
+  else
+    TEST_ERROR="I8 small content should be < 1 (got ${score})"
+    return 1
+  fi
+}
+
+test_i8_within_range() {
+  local out="${TEMP_ROOT}/i8-good.jsonl"
+  run_scanner "${I8_GOOD}" "$out" "${TEMP_ROOT}/i8g.stderr" || return 1
+  local score
+  score="$(extract_check_score "$out" "I8")" || { TEST_ERROR="I8 not found"; return 1; }
+  if [ "$score" != "1" ]; then TEST_ERROR="I8 100-line should be 1 (got ${score})"; return 1; fi
+}
+
+test_i8_over_budget() {
+  local out="${TEMP_ROOT}/i8-huge.jsonl"
+  run_scanner "${I8_HUGE}" "$out" "${TEMP_ROOT}/i8h.stderr" || return 1
+  local score
+  score="$(extract_check_score "$out" "I8")" || { TEST_ERROR="I8 not found"; return 1; }
+  if node -e "process.exit(Number(process.argv[1]) < 1 ? 0 : 1)" "$score"; then
+    return 0
+  else
+    TEST_ERROR="I8 huge content should be < 1 (got ${score})"
+    return 1
+  fi
+}
+
+run_test "I8: below range (10 lines) → < 1.0" test_i8_small_below_range
+run_test "I8: within range (100 lines) → 1.0" test_i8_within_range
+run_test "I8: over budget (600 lines) → < 1.0" test_i8_over_budget
+
 printf '%s/%s tests passed\n' "${pass_count}" "${test_count}"
 
 if [ "${pass_count}" -eq "${test_count}" ]; then
