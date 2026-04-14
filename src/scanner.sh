@@ -352,11 +352,16 @@ extract_references() {
     # Skip inline code, bare paths in prose, and list items with paths as descriptions
     rest="$line"
     while [[ "$rest" =~ $md_link_regex ]]; do
-      candidate="$(normalize_reference "${BASH_REMATCH[1]}")"
+      # Cache match groups before calling helpers — normalize_reference
+      # and looks_like_reference invoke their own [[ =~ ]] which resets
+      # BASH_REMATCH, and `set -u` at file top would then fail on [0]/[1].
+      local match0="${BASH_REMATCH[0]}"
+      local match1="${BASH_REMATCH[1]}"
+      candidate="$(normalize_reference "$match1")"
       if looks_like_reference "$candidate"; then
         printf '%s\n' "$candidate"
       fi
-      rest="${rest#*"${BASH_REMATCH[0]}"}"
+      rest="${rest#*"$match0"}"
     done
   done < "$entry_file" | sort -u
 }
@@ -374,9 +379,16 @@ resolve_reference_exists() {
     return 1
   fi
 
-  if [ -e "$ref" ]; then
-    return 0
-  elif [ -e "${project_dir}/${ref#./}" ]; then
+  # Reject parent-dir traversal. "/${ref}/" wraps the ref so leading,
+  # trailing, and middle "../" segments all match the same check.
+  case "/${ref}/" in
+    *"/../"*) return 1 ;;
+  esac
+
+  # Check only within project_dir. Do NOT probe the shell's CWD or
+  # absolute paths — that would let ../../../etc/passwd resolve if
+  # the check were run from /.
+  if [ -e "${project_dir}/${ref#./}" ]; then
     return 0
   fi
 
@@ -566,11 +578,17 @@ emit_result() {
   local detail="$6"
   local dimension=""
   local check_name=""
+  local line=""
 
-  dimension="$(jq -r --arg id "$check_id" '.checks[$id].dimension' "$EVIDENCE_FILE")"
-  check_name="$(jq -r --arg id "$check_id" '.checks[$id].name' "$EVIDENCE_FILE")"
+  dimension="$(jq -r --arg id "$check_id" '.checks[$id].dimension // empty' "$EVIDENCE_FILE")"
+  check_name="$(jq -r --arg id "$check_id" '.checks[$id].name // empty' "$EVIDENCE_FILE")"
 
-  jq -cn \
+  if [ -z "$dimension" ] || [ -z "$check_name" ]; then
+    printf 'scanner error: unknown check_id "%s" — not in evidence.json\n' "$check_id" >&2
+    return 1
+  fi
+
+  line="$(jq -cn \
     --arg project "$project_name" \
     --arg dimension "$dimension" \
     --arg check_id "$check_id" \
@@ -590,7 +608,17 @@ emit_result() {
       score: $score,
       detail: $detail,
       evidence_id: $evidence_id
-    }'
+    }')" || {
+    printf 'scanner error: jq failed emitting %s for %s\n' "$check_id" "$project_name" >&2
+    return 1
+  }
+
+  if [ -z "$line" ]; then
+    printf 'scanner error: jq produced empty output for %s\n' "$check_id" >&2
+    return 1
+  fi
+
+  printf '%s\n' "$line"
 }
 
 # Static-only: extracts a script file path from a shell command string.
@@ -1200,7 +1228,7 @@ EOF
     hook_content="$(cat "$hook_file" 2>/dev/null)" || hook_content=""
     if echo "$hook_content" | grep -qE '(tsc|eslint --fix|prettier --write|jest|vitest|mypy|cargo clippy|cargo test|go test|pytest|rspec)'; then
       hook_time="8"
-      emit_result "$project_name" "W6" "$hook_time" "10" "1" "Pre-commit hook contains slow commands (estimated ${hook_time}s)"
+      emit_result "$project_name" "W6" "$hook_time" "10" "0" "Pre-commit hook contains slow commands (estimated ${hook_time}s)"
     else
       hook_time="2"
       emit_result "$project_name" "W6" "$hook_time" "10" "1" "Pre-commit hook looks fast (estimated ${hook_time}s)"
@@ -1241,7 +1269,7 @@ EOF
           wf_pinned=$((wf_pinned + 1))
         fi
       done <<USES
-$(grep -E '^\s*uses:\s' "$wf_file" 2>/dev/null | grep -v '#.*uses:' || true)
+$(grep -E '^\s*(-\s+)?uses:\s' "$wf_file" 2>/dev/null | grep -v '#.*uses:' || true)
 USES
     done <<WF
 $(find "$wf_dir" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null)
