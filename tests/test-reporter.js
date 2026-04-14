@@ -144,17 +144,15 @@ runTest('missing input file causes non-zero exit', () => {
   assert.notEqual(result.status, 0, 'missing file should cause non-zero exit');
 });
 
-runTest('unknown --format arg exits zero without producing output files (P1: no format validation)', () => {
-  // Bug P1: reporter.js silently accepts unknown --format without error.
-  // This test documents the current behavior; a validation fix should make this exit non-zero.
+runTest('unknown --format arg exits non-zero with error message on stderr', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-reporter-badformat-'));
   try {
     const scoresPath = writeFixtureScores(tempDir);
     const result = spawnSync(process.execPath, [reporterPath, scoresPath, '--format', 'invalid-format-xyz', '--output-dir', tempDir], {
       encoding: 'utf8',
     });
-    // Current behavior: exits 0, produces no output file (unknown format is silently ignored)
-    assert.equal(result.status, 0, 'current behavior: unknown format exits 0 (bug: should be non-zero)');
+    assert.notEqual(result.status, 0, 'unknown format should cause non-zero exit');
+    assert.match(result.stderr, /unknown --format/i, 'stderr should name the invalid format');
     const filesAfter = fs.readdirSync(tempDir).filter((f) => f !== path.basename(scoresPath) && !f.endsWith('.json'));
     assert.equal(filesAfter.length, 0, 'unknown format should produce no output files');
   } finally {
