@@ -34,10 +34,13 @@ test_action_file_exists() {
 }
 
 test_action_yaml_valid() {
-  if ! python3 -c "import sys, yaml; yaml.safe_load(open('${ACTION_FILE}'))" 2>/tmp/al-yaml-err; then
-    TEST_ERROR="$(cat /tmp/al-yaml-err)"
+  local err_file="${TMPDIR:-/tmp}/al-yaml-err.$$"
+  if ! python3 -c "import sys, yaml; yaml.safe_load(open('${ACTION_FILE}'))" 2>"${err_file}"; then
+    TEST_ERROR="$(cat "${err_file}" 2>/dev/null || echo 'YAML parse failed')"
+    rm -f "${err_file}"
     return 1
   fi
+  rm -f "${err_file}"
 }
 
 test_action_references_existing_scripts() {

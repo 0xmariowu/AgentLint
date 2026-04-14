@@ -56,14 +56,19 @@ runs:
 
     - name: Scan
       shell: bash
+      env:
+        AL_ACTION_PATH: ${{ github.action_path }}
+        AL_PROJECT_DIR: ${{ inputs.project-dir }}
       run: |
-        bash "${{ github.action_path }}/src/scanner.sh" --project-dir "${{ inputs.project-dir }}" > "${RUNNER_TEMP}/al-scan.jsonl"
+        bash "${AL_ACTION_PATH}/src/scanner.sh" --project-dir "${AL_PROJECT_DIR}" > "${RUNNER_TEMP}/al-scan.jsonl"
 
     - name: Score
       id: score
       shell: bash
+      env:
+        AL_ACTION_PATH: ${{ github.action_path }}
       run: |
-        node "${{ github.action_path }}/src/scorer.js" "${RUNNER_TEMP}/al-scan.jsonl" > "${RUNNER_TEMP}/al-scores.json"
+        node "${AL_ACTION_PATH}/src/scorer.js" "${RUNNER_TEMP}/al-scan.jsonl" > "${RUNNER_TEMP}/al-scores.json"
         SCORE=$(node -e "const s=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')); process.stdout.write(String(s.total_score ?? 0))" "${RUNNER_TEMP}/al-scores.json")
         echo "score=${SCORE}" >> "${GITHUB_OUTPUT}"
         for dim in findability instructions workability continuity safety harness; do
@@ -73,26 +78,33 @@ runs:
 
     - name: Generate plan
       shell: bash
+      env:
+        AL_ACTION_PATH: ${{ github.action_path }}
       run: |
-        node "${{ github.action_path }}/src/plan-generator.js" "${RUNNER_TEMP}/al-scores.json" > "${RUNNER_TEMP}/al-plan.json" 2>/dev/null || echo '{"items":[]}' > "${RUNNER_TEMP}/al-plan.json"
+        node "${AL_ACTION_PATH}/src/plan-generator.js" "${RUNNER_TEMP}/al-scores.json" > "${RUNNER_TEMP}/al-plan.json" 2>/dev/null || echo '{"items":[]}' > "${RUNNER_TEMP}/al-plan.json"
 
     - name: Report
       shell: bash
+      env:
+        AL_ACTION_PATH: ${{ github.action_path }}
+        AL_FORMAT: ${{ inputs.format }}
+        AL_OUTPUT_DIR: ${{ inputs.output-dir }}
       run: |
-        REPORTER_ARGS=(--plan "${RUNNER_TEMP}/al-plan.json" --format "${{ inputs.format }}")
-        if [ -n "${{ inputs.output-dir }}" ]; then
-          mkdir -p "${{ inputs.output-dir }}"
-          REPORTER_ARGS+=(--output-dir "${{ inputs.output-dir }}")
+        REPORTER_ARGS=(--plan "${RUNNER_TEMP}/al-plan.json" --format "${AL_FORMAT}")
+        if [ -n "${AL_OUTPUT_DIR}" ]; then
+          mkdir -p "${AL_OUTPUT_DIR}"
+          REPORTER_ARGS+=(--output-dir "${AL_OUTPUT_DIR}")
         fi
-        node "${{ github.action_path }}/src/reporter.js" "${RUNNER_TEMP}/al-scores.json" "${REPORTER_ARGS[@]}"
+        node "${AL_ACTION_PATH}/src/reporter.js" "${RUNNER_TEMP}/al-scores.json" "${REPORTER_ARGS[@]}"
 
     - name: Threshold check
       shell: bash
+      env:
+        AL_SCORE: ${{ steps.score.outputs.score }}
+        AL_FAIL_BELOW: ${{ inputs.fail-below }}
       run: |
-        SCORE="${{ steps.score.outputs.score }}"
-        FAIL_BELOW="${{ inputs.fail-below }}"
-        if [ "${FAIL_BELOW}" -gt 0 ] && [ "${SCORE}" -lt "${FAIL_BELOW}" ]; then
-          echo "::error::AgentLint score ${SCORE}/100 is below minimum ${FAIL_BELOW}"
+        if [ "${AL_FAIL_BELOW}" -gt 0 ] && [ "${AL_SCORE}" -lt "${AL_FAIL_BELOW}" ]; then
+          echo "::error::AgentLint score ${AL_SCORE}/100 is below minimum ${AL_FAIL_BELOW}"
           exit 1
         fi
-        echo "::notice::AgentLint score: ${SCORE}/100"
+        echo "::notice::AgentLint score: ${AL_SCORE}/100"
