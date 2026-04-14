@@ -7,8 +7,14 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
+// Pin the install-script fetch to the tag that matches this published package.
+// Fetching from main would let any commit on main silently change what every
+// prior package version installs — a supply-chain foot-gun. The release
+// workflow writes the correct version into package.json just before npm publish,
+// so reading our own version here gives us the tag we shipped alongside.
+const { version: PKG_VERSION } = require("./package.json");
 const INSTALL_URL =
-  "https://raw.githubusercontent.com/0xmariowu/AgentLint/main/scripts/install.sh";
+  `https://raw.githubusercontent.com/0xmariowu/AgentLint/v${PKG_VERSION}/scripts/install.sh`;
 
 function download(url) {
   return new Promise((resolve, reject) => {
@@ -54,7 +60,7 @@ async function main() {
     console.error(`\nInstallation failed: ${err.message}`);
     console.error("Try the manual method:");
     console.error(
-      "  curl -fsSL https://raw.githubusercontent.com/0xmariowu/AgentLint/main/scripts/install.sh | bash\n"
+      `  curl -fsSL https://raw.githubusercontent.com/0xmariowu/AgentLint/v${PKG_VERSION}/scripts/install.sh | bash\n`
     );
     process.exit(1);
   }
