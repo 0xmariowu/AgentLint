@@ -99,7 +99,7 @@ function initDimensionState(dimensionsConfig) {
 
 function finalizeDimensions(states, dimensionsConfig) {
   const dimensions = {};
-  for (const [name, cfg] of Object.entries(dimensionsConfig)) {
+  for (const name of Object.keys(dimensionsConfig)) {
     const state = states[name];
     const weighted = state.weightSum > 0 ? (state.weightedSum / state.weightSum) * state.max : 0;
     const score = Number.isFinite(weighted) ? Math.round(weighted) : 0;
@@ -209,6 +209,8 @@ async function run() {
     try {
       parsed = JSON.parse(text);
     } catch (err) {
+      const preview = text.length > 80 ? `${text.slice(0, 77)}...` : text;
+      process.stderr.write(`scorer: skipping malformed JSONL line: ${preview}\n`);
       return;
     }
 
