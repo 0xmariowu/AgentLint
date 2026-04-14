@@ -35,12 +35,15 @@ const CHECK_FIX_ACTIONS = {
   S6: 'Remove hardcoded secrets and use environment variables',
   H1: 'Fix invalid hook event names. Valid events: PreToolUse, PostToolUse, Stop, SessionStart, SessionEnd, Notification, PreCompact, UserPromptSubmit, SubagentStop, SubagentStart, PostToolUseFailure, PermissionRequest',
   H2: 'Add matcher field to PreToolUse hooks to avoid firing on every tool call',
+  H3: 'Add circuit breaker guard to Stop hook scripts (e.g., STOP_HOOK_ACTIVE variable checked at entry)',
   H4: 'Replace dangerous auto-approve rules with scoped permissions (e.g., Bash(git status:*) instead of Bash(*))',
+  H5: 'Extend .env deny rules to cover variants: Read(./.env.*) or Read(./.env*)',
+  H6: 'Review hook scripts making network calls — ensure external requests are intentional, not data exfiltration',
 };
 
 const ASSISTED_FIXES = new Set(['F1', 'C2']);
 const AUTO_FIXES = new Set(['I5']);
-const GUIDED_FIXES = new Set(['I3', 'W3', 'C1']);
+const GUIDED_FIXES = new Set(['I3', 'W3', 'C1', 'H3', 'H6']);
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);

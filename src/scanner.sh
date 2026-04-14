@@ -593,6 +593,48 @@ emit_result() {
     }'
 }
 
+# Static-only: extracts a script file path from a shell command string.
+# NEVER executes the script. Returns 'INLINE' for inline commands, empty
+# for inline flags only, or the resolved absolute path for file refs.
+extract_script_path() {
+  local command_str="$1"
+  local project_dir="$2"
+  # Detect inline shell commands
+  case "$command_str" in
+    "bash -c "*|"sh -c "*|"python3 -c "*|"python -c "*|"node -e "*|"node --eval "*)
+      printf 'INLINE\n'
+      return
+      ;;
+  esac
+  # Extract first non-flag, non-interpreter token as script path
+  local script_path=""
+  local token
+  local restore_glob=0
+  case $- in
+    *f*) restore_glob=1 ;;
+  esac
+  set -f
+  # shellcheck disable=SC2086
+  for token in $command_str; do
+    case "$token" in
+      -*) continue ;;
+      bash|sh|python|python3|node|zsh) continue ;;
+      *)
+        script_path="$token"
+        break
+        ;;
+    esac
+  done
+  [ "$restore_glob" -eq 1 ] || set +f
+  [ -z "$script_path" ] && return
+  # Resolve relative paths against project_dir
+  case "$script_path" in
+    ./*) script_path="${project_dir}/${script_path#./}" ;;
+    ../*) script_path="${project_dir}/${script_path}" ;;
+  esac
+  printf '%s\n' "$script_path"
+}
+
 scan_project() {
   local project_dir="$1"
   local project_name=""
@@ -1419,6 +1461,117 @@ EOF_H4R
       h4_measured="$(jq -cn --argjson total "$h4_total_allow" --arg d "$h4_dangerous" \
         '{dangerous_rules: ($d | split(", ") | map(select(length > 0))), total_allow: $total}')"
       emit_result "$project_name" "H4" "$h4_measured" "null" "0" "Dangerous auto-approve rule(s) found: ${h4_dangerous}"
+    fi
+  fi
+
+  # H3 — Stop hook has circuit breaker (static analysis, never executes scripts)
+  if [ ! -f "$settings_path" ]; then
+    emit_result "$project_name" "H3" '{"stop_hooks":0,"guarded":0}' "null" "1" "No settings.json"
+  else
+    local stop_total
+    stop_total="$(jq '[.hooks.Stop[]?.hooks[]?.command // empty] | length' "$settings_path" 2>/dev/null)" || stop_total=0
+    if [ "${stop_total:-0}" -eq 0 ]; then
+      emit_result "$project_name" "H3" '{"stop_hooks":0,"guarded":0}' "null" "1" "No Stop hooks configured"
+    else
+      local stop_commands
+      stop_commands="$(jq -r '.hooks.Stop[]?.hooks[]?.command // empty' "$settings_path" 2>/dev/null)" || stop_commands=""
+      local h3_guarded=0
+      local h3_unresolvable=0
+      while IFS= read -r cmd; do
+        [ -z "$cmd" ] && continue
+        local script_path
+        script_path="$(extract_script_path "$cmd" "$project_dir")"
+        if [ "$script_path" = "INLINE" ]; then
+          # Check inline command text itself for guard
+          if printf '%s\n' "$cmd" | grep -Eq 'stop_hook_active|STOP_HOOK_ACTIVE|CLAUDE_STOP_HOOK|STOP_HOOK_GUARD|exit 0.*#.*loop|anti.?loop'; then
+            h3_guarded=$((h3_guarded + 1))
+          fi
+        elif [ -z "$script_path" ] || [ ! -f "$script_path" ]; then
+          h3_unresolvable=$((h3_unresolvable + 1))
+        else
+          if grep -Eq 'stop_hook_active|STOP_HOOK_ACTIVE|CLAUDE_STOP_HOOK|STOP_HOOK_GUARD|exit 0.*#.*loop|anti.?loop' "$script_path" 2>/dev/null; then
+            h3_guarded=$((h3_guarded + 1))
+          fi
+        fi
+      done <<EOF_H3
+$stop_commands
+EOF_H3
+      local h3_measured
+      h3_measured="$(jq -cn --argjson total "$stop_total" --argjson guarded "$h3_guarded" --argjson unres "$h3_unresolvable" \
+        '{stop_hooks: $total, guarded: $guarded, unresolvable: $unres}')"
+      if [ "$h3_guarded" -eq "$stop_total" ]; then
+        emit_result "$project_name" "H3" "$h3_measured" "null" "1" "All ${stop_total} Stop hook(s) have loop protection"
+      elif [ "$h3_unresolvable" -gt 0 ] && [ "$((h3_guarded + h3_unresolvable))" -eq "$stop_total" ]; then
+        # Some unresolvable; give partial credit
+        emit_result "$project_name" "H3" "$h3_measured" "null" "0.5" "${h3_guarded}/${stop_total} guarded, ${h3_unresolvable} unresolvable script path(s)"
+      else
+        emit_result "$project_name" "H3" "$h3_measured" "null" "0" "${h3_guarded}/${stop_total} Stop hook(s) have circuit breaker — risk of infinite loop"
+      fi
+    fi
+  fi
+
+  # H5 — Env deny coverage complete
+  if [ ! -f "$settings_path" ]; then
+    emit_result "$project_name" "H5" "null" "null" "1" "No settings.json"
+  else
+    local deny_has_env=false
+    local deny_has_variant=false
+    local deny_rules
+    deny_rules="$(jq -r '.permissions.deny[]?' "$settings_path" 2>/dev/null)" || deny_rules=""
+    while IFS= read -r rule; do
+      [ -z "$rule" ] && continue
+      # Matches Read(./.env), Read(.env), Read(.env.local), Read(./.env.*), etc
+      case "$rule" in
+        *".env."*|*".env*"*) deny_has_variant=true; deny_has_env=true ;;
+        *".env"*) deny_has_env=true ;;
+      esac
+    done <<EOF_H5
+$deny_rules
+EOF_H5
+    if [ "$deny_has_env" = false ]; then
+      emit_result "$project_name" "H5" '{"deny_env":false,"deny_variants":false}' "null" "1" "No .env deny rules (N/A)"
+    elif [ "$deny_has_variant" = true ]; then
+      emit_result "$project_name" "H5" '{"deny_env":true,"deny_variants":true}' "null" "1" ".env + variants covered"
+    else
+      emit_result "$project_name" "H5" '{"deny_env":true,"deny_variants":false}' "null" "0.5" ".env denied but .env.* variants (e.g. .env.local, .env.production) are not"
+    fi
+  fi
+
+  # H6 — Hook scripts network access (static analysis, never executes scripts)
+  if [ ! -f "$settings_path" ]; then
+    emit_result "$project_name" "H6" '{"hooks_with_network":0}' "null" "1" "No settings.json"
+  else
+    local all_hook_commands
+    all_hook_commands="$(jq -r '.hooks // {} | to_entries[]? | .value[]? | .hooks[]? | .command // empty' "$settings_path" 2>/dev/null)" || all_hook_commands=""
+    local h6_network_count=0
+    local h6_total=0
+    while IFS= read -r cmd; do
+      [ -z "$cmd" ] && continue
+      h6_total=$((h6_total + 1))
+      local script_path
+      script_path="$(extract_script_path "$cmd" "$project_dir")"
+      if [ "$script_path" = "INLINE" ]; then
+        if printf '%s\n' "$cmd" | grep -Eq 'curl |wget |urllib\.request|requests\.(post|get|put)|fetch\(|axios\.|http\.request|https?://hooks\.|webhook'; then
+          h6_network_count=$((h6_network_count + 1))
+        fi
+      elif [ -n "$script_path" ] && [ -f "$script_path" ]; then
+        if grep -Eq 'curl |wget |urllib\.request|requests\.(post|get|put)|fetch\(|axios\.|http\.request|https?://hooks\.|webhook' "$script_path" 2>/dev/null; then
+          h6_network_count=$((h6_network_count + 1))
+        fi
+      fi
+    done <<EOF_H6
+$all_hook_commands
+EOF_H6
+    if [ "$h6_total" -eq 0 ]; then
+      emit_result "$project_name" "H6" '{"hooks_with_network":0,"total_hooks":0}' "null" "1" "No hooks configured"
+    elif [ "$h6_network_count" -eq 0 ]; then
+      local h6_measured
+      h6_measured="$(jq -cn --argjson total "$h6_total" '{hooks_with_network: 0, total_hooks: $total}')"
+      emit_result "$project_name" "H6" "$h6_measured" "null" "1" "No hook scripts detected making network calls"
+    else
+      local h6_measured
+      h6_measured="$(jq -cn --argjson count "$h6_network_count" --argjson total "$h6_total" '{hooks_with_network: $count, total_hooks: $total}')"
+      emit_result "$project_name" "H6" "$h6_measured" "null" "0" "${h6_network_count}/${h6_total} hook script(s) make external network calls — review for legitimacy"
     fi
   fi
 }

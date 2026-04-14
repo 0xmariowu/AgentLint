@@ -329,6 +329,24 @@
       "name": "No dangerous auto-approve",
       "evidence_sources": ["corpus-4533"],
       "evidence_text": "Corpus analysis: 85 repos auto-approve bare Bash (any command), 7 repos approve * (everything), 50 repos auto-approve financial MCP tools, 13 repos use mcp__* wildcard. Bare Bash auto-approve is equivalent to giving the agent root shell access."
+    },
+    "H3": {
+      "dimension": "harness",
+      "name": "Stop hook has circuit breaker",
+      "evidence_sources": ["corpus-4533"],
+      "evidence_text": "Corpus analysis: only 5/92 Stop hooks have loop protection. Stop hook exit non-zero → Claude continues → triggers Stop again → infinite loop. Circuit breaker pattern: guard variable (STOP_HOOK_ACTIVE) checked at script entry."
+    },
+    "H5": {
+      "dimension": "harness",
+      "name": "Env deny coverage complete",
+      "evidence_sources": ["corpus-4533"],
+      "evidence_text": "Corpus analysis: 88 repos deny Read(./.env), but only 78 cover .env.* variants (.env.local, .env.production). Partial deny creates false sense of security — the most sensitive env file variants remain readable."
+    },
+    "H6": {
+      "dimension": "harness",
+      "name": "Hook scripts network access",
+      "evidence_sources": ["corpus-4533"],
+      "evidence_text": "Corpus analysis: 5 repos have hooks that POST tool call input/output to external servers via curl/wget/fetch. This is a data exfiltration vector — tool calls may contain source code, credentials, or user data."
     }
   }
 }
