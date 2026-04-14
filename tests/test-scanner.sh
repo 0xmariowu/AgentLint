@@ -1634,6 +1634,121 @@ test_i2_density_present() {
 
 run_test "I2: emphasis density produces valid score [0,1]" test_i2_density_present
 
+# ── Regression tests for PR-1 scanner-correctness fixes ──────────────────
+
+# S2 fix: grep must match list-item '- uses:' form. Before fix, standard
+# step-level actions slipped past the pattern and S2 always returned 1.
+S2_LIST_UNPINNED_DIR="${TEMP_ROOT}/s2-list-unpinned"
+mkdir -p "${S2_LIST_UNPINNED_DIR}/.github/workflows"
+cat > "${S2_LIST_UNPINNED_DIR}/.github/workflows/ci.yml" <<'YAML'
+name: ci
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+      - uses: actions/setup-node@v4
+YAML
+
+test_s2_list_item_unpinned() {
+  local out="${TEMP_ROOT}/s2-list-unpinned.jsonl"
+  bash "${SCANNER}" --project-dir "${S2_LIST_UNPINNED_DIR}" > "$out" 2>/dev/null
+  local score
+  score="$(extract_check_score "$out" "S2")" || { TEST_ERROR="S2 not found"; return 1; }
+  if node -e "process.exit(Number(process.argv[1]) < 1 ? 0 : 1)" "$score"; then
+    return 0
+  else
+    TEST_ERROR="S2 list-item unpinned actions should score < 1 (got ${score})"
+    return 1
+  fi
+}
+
+run_test "S2 regression: list-item '- uses: X@main' detected and penalized" test_s2_list_item_unpinned
+
+S2_LIST_PINNED_DIR="${TEMP_ROOT}/s2-list-pinned"
+mkdir -p "${S2_LIST_PINNED_DIR}/.github/workflows"
+cat > "${S2_LIST_PINNED_DIR}/.github/workflows/ci.yml" <<'YAML'
+name: ci
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+YAML
+
+test_s2_list_item_pinned() {
+  local out="${TEMP_ROOT}/s2-list-pinned.jsonl"
+  bash "${SCANNER}" --project-dir "${S2_LIST_PINNED_DIR}" > "$out" 2>/dev/null
+  local score
+  score="$(extract_check_score "$out" "S2")" || { TEST_ERROR="S2 not found"; return 1; }
+  if [ "$score" != "1" ]; then
+    TEST_ERROR="S2 list-item pinned actions should score 1 (got ${score})"
+    return 1
+  fi
+}
+
+run_test "S2 regression: list-item '- uses: X@<sha>' detected and scores 1" test_s2_list_item_pinned
+
+# W6 fix: slow hook must emit score < 1. Before fix, both branches
+# emitted the string literal "1" regardless of hook speed.
+W6_SLOW_DIR="${TEMP_ROOT}/w6-slow"
+mkdir -p "${W6_SLOW_DIR}/.husky"
+git -C "${W6_SLOW_DIR}" init --quiet 2>/dev/null || true
+cat > "${W6_SLOW_DIR}/.husky/pre-commit" <<'HOOK'
+#!/usr/bin/env bash
+npx jest --passWithNoTests
+HOOK
+chmod +x "${W6_SLOW_DIR}/.husky/pre-commit"
+
+test_w6_slow_hook_penalized() {
+  local out="${TEMP_ROOT}/w6-slow.jsonl"
+  bash "${SCANNER}" --project-dir "${W6_SLOW_DIR}" > "$out" 2>/dev/null
+  local score
+  score="$(extract_check_score "$out" "W6")" || { TEST_ERROR="W6 not found"; return 1; }
+  if [ "$score" != "0" ]; then
+    TEST_ERROR="W6 slow hook (contains jest) should score 0 (got ${score})"
+    return 1
+  fi
+}
+
+run_test "W6 regression: hook with 'jest' scores 0 (not always 1)" test_w6_slow_hook_penalized
+
+# F5 fix: '../' traversal refs must be counted as broken, not resolved.
+F5_TRAVERSAL_DIR="${TEMP_ROOT}/f5-traversal"
+mkdir -p "${F5_TRAVERSAL_DIR}"
+git -C "${F5_TRAVERSAL_DIR}" init --quiet 2>/dev/null || true
+cat > "${F5_TRAVERSAL_DIR}/CLAUDE.md" <<'MD'
+# Test
+
+## Files
+
+- See [rules](../../../etc/passwd)
+- See [also](../../../../root/.ssh/authorized_keys)
+- See [local](./normal.md)
+MD
+echo "ok" > "${F5_TRAVERSAL_DIR}/normal.md"
+git -C "${F5_TRAVERSAL_DIR}" add -A >/dev/null 2>&1
+git -C "${F5_TRAVERSAL_DIR}" commit -q -m init 2>/dev/null || true
+
+test_f5_traversal_refs_broken() {
+  local out="${TEMP_ROOT}/f5-traversal.jsonl"
+  bash "${SCANNER}" --project-dir "${F5_TRAVERSAL_DIR}" > "$out" 2>/dev/null
+  local detail
+  detail="$(grep '"check_id":"F5"' "$out" | head -1 | jq -r '.detail')" || {
+    TEST_ERROR="F5 not found"; return 1
+  }
+  case "$detail" in
+    *"Broken references: 2/3"*) return 0 ;;
+    *"Broken references: 3/3"*) return 0 ;;
+    *) TEST_ERROR="F5 should report >=2 broken traversal refs (detail: ${detail})"; return 1 ;;
+  esac
+}
+
+run_test "F5 regression: traversal refs ('../') counted as broken" test_f5_traversal_refs_broken
+
 printf '%s/%s tests passed\n' "${pass_count}" "${test_count}"
 
 if [ "${pass_count}" -eq "${test_count}" ]; then
