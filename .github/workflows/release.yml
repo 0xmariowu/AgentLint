@@ -9,6 +9,11 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# Least-privilege default for any future job added to this workflow.
+# Release job below elevates to contents: write for creating the GitHub Release.
+permissions:
+  contents: read
+
 jobs:
   release:
     runs-on: ubuntu-latest
