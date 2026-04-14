@@ -1223,7 +1223,7 @@ EOF
     hook_content="$(cat "$hook_file" 2>/dev/null)" || hook_content=""
     if echo "$hook_content" | grep -qE '(tsc|eslint --fix|prettier --write|jest|vitest|mypy|cargo clippy|cargo test|go test|pytest|rspec)'; then
       hook_time="8"
-      emit_result "$project_name" "W6" "$hook_time" "10" "1" "Pre-commit hook contains slow commands (estimated ${hook_time}s)"
+      emit_result "$project_name" "W6" "$hook_time" "10" "0" "Pre-commit hook contains slow commands (estimated ${hook_time}s)"
     else
       hook_time="2"
       emit_result "$project_name" "W6" "$hook_time" "10" "1" "Pre-commit hook looks fast (estimated ${hook_time}s)"
