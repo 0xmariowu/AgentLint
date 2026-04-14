@@ -4,8 +4,6 @@
 const fs = require('fs');
 const path = require('path');
 
-const evidencePath = path.join(__dirname, '..', 'standards', 'evidence.json');
-const logoPath = path.join(__dirname, '..', 'assets', 'logo.svg');
 const faviconPath = path.join(__dirname, '..', 'assets', 'favicon.svg');
 
 let faviconB64 = '';
@@ -136,7 +134,12 @@ function generateJsonl(scores, date) {
 }
 
 function esc(s) {
-  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function generateHtmlReport(scores, beforeScores, plan, date) {
@@ -170,7 +173,7 @@ function generateHtmlReport(scores, beforeScores, plan, date) {
   if (hasBefore && beforeScores.by_project) {
     const beforeMap = {};
     for (const [project, pd] of Object.entries(beforeScores.by_project)) {
-      for (const [dimName, dim] of Object.entries(pd)) {
+      for (const dim of Object.values(pd)) {
         for (const check of dim.checks || []) {
           beforeMap[`${project}:${check.check_id}`] = check.score;
         }
@@ -496,6 +499,11 @@ function main() {
   const planFile = args.find((a, i) => args[i - 1] === '--plan');
   const outputDir = args.find((a, i) => args[i - 1] === '--output-dir') || null;
   const format = args.find((a, i) => args[i - 1] === '--format') || 'terminal';
+  const validFormats = ['terminal', 'md', 'jsonl', 'html', 'all'];
+  if (!validFormats.includes(format)) {
+    process.stderr.write(`reporter.js: unknown --format '${format}'. Valid: ${validFormats.join(', ')}\n`);
+    process.exit(1);
+  }
 
   const beforeFile = args.find((a, i) => args[i - 1] === '--before');
 

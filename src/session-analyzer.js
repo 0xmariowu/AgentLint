@@ -398,12 +398,6 @@ async function parseSessionFile(filePath) {
   });
 }
 
-function getSessionProjectCount(entries, projectsRootCatalog, filePath) {
-  const sessionProject = projectFromSessionDir(filePath);
-  const mapped = matchProjectFromCatalog(sessionProject, projectsRootCatalog);
-  return mapped ? mapped.name : sessionProject;
-}
-
 function extractSubstrings(text, minLength = MIN_SUBSTRING_LEN) {
   const tokens = new Set();
   const normalized = normalizeText(text);
