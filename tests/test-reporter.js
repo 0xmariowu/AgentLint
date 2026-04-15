@@ -135,6 +135,21 @@ runTest('jsonl format writes valid JSON lines', () => {
   }
 });
 
+runTest('scores file is not confused with --plan value', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-reporter-plan-'));
+
+  try {
+    const scoresPath = writeFixtureScores(tempDir);
+    const planPath = path.join(tempDir, 'plan.json');
+    fs.writeFileSync(planPath, '[]\n');
+
+    const result = runReporter(['--plan', planPath, scoresPath, '--format', 'terminal']);
+    assert.match(result.stdout, /Score: 73\/100/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 // ─── S4: Edge-case tests ───────────────────────────────────────────────────
 
 runTest('missing input file causes non-zero exit', () => {
