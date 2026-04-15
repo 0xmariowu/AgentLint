@@ -66,6 +66,18 @@ function loadScannerResults() {
   return map;
 }
 
+function wilsonInterval(successes, total, z = 1.96) {
+  if (total === 0) return { lower: null, upper: null };
+  const p = successes / total;
+  const denom = 1 + (z * z) / total;
+  const center = (p + (z * z) / (2 * total)) / denom;
+  const margin = (z * Math.sqrt(p * (1 - p) / total + (z * z) / (4 * total * total))) / denom;
+  return {
+    lower: Math.max(0, center - margin),
+    upper: Math.min(1, center + margin),
+  };
+}
+
 // Main
 const labels = loadLabels();
 const scanner = loadScannerResults();
@@ -131,8 +143,17 @@ for (const check of ALL_CHECKS) {
   const f1 = (precision !== null && recall !== null && (precision + recall) > 0)
     ? 2 * precision * recall / (precision + recall) : null;
   const accuracy = m.total > 0 ? (m.tp + m.tn) / m.total : null;
+  const accuracyCI = wilsonInterval(m.tp + m.tn, m.total);
 
-  results[check] = { ...m, precision, recall, f1, accuracy };
+  results[check] = {
+    ...m,
+    precision,
+    recall,
+    f1,
+    accuracy,
+    accuracy_ci_low: accuracyCI.lower,
+    accuracy_ci_high: accuracyCI.upper,
+  };
 }
 
 // Print table
@@ -167,6 +188,27 @@ const overallAcc = (totalTP + totalFP + totalFN + totalTN) > 0 ? (totalTP + tota
 
 console.log('-'.repeat(72));
 console.log(`${'TOTAL'.padEnd(7)} ${String(totalTP).padStart(5)} ${String(totalFP).padStart(5)} ${String(totalFN).padStart(5)} ${String(totalTN).padStart(5)} ${''.padStart(5)} ${(overallPrec*100).toFixed(1).padStart(6)}% ${(overallRec*100).toFixed(1).padStart(6)}% ${(overallF1*100).toFixed(1).padStart(6)}% ${(overallAcc*100).toFixed(1).padStart(6)}%`);
+
+const lowNWarnings = ALL_CHECKS
+  .map(check => ({ check, result: results[check] }))
+  .filter(({ result }) =>
+    result.accuracy_ci_low !== null &&
+    result.accuracy_ci_high !== null &&
+    (result.accuracy_ci_high - result.accuracy_ci_low) > 0.10
+  );
+
+console.log('\nLow-N warning:');
+if (lowNWarnings.length === 0) {
+  console.log('  None.');
+} else {
+  for (const { check, result } of lowNWarnings) {
+    console.log(
+      `  Check ${check}: ${(result.accuracy * 100).toFixed(1)}% ` +
+      `(95% CI: ${(result.accuracy_ci_low * 100).toFixed(1)}% to ${(result.accuracy_ci_high * 100).toFixed(1)}%, n=${result.total}) ` +
+      '- wide CI, headline number unreliable'
+    );
+  }
+}
 
 // Save results as JSON for baseline comparison
 const outputJson = {
