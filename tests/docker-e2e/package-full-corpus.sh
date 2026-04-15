@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Packages ALL 4533 corpus repos for full Docker robustness test.
-# Only includes files scanner needs — no history.json, no _other, no _meta.json.
+# Only includes scanner-relevant files plus corpus metadata (_meta.json); no history.json or _other.
 # Usage: bash tests/docker-e2e/package-full-corpus.sh
 
 set -euo pipefail
