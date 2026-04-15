@@ -1,5 +1,45 @@
 # Changelog
 
+## v0.7.0 (2026-04-15)
+
+Audit-driven minor release. Dimension count grows from 6 to 8, check count from 42 to 49 — your repo score will shift, because the scanner is now finally counting checks it had been silently dropping.
+
+### Added — two new dimensions, seven new checks
+
+`deep-analyzer` and `session-analyzer` were already emitting `D1`-`D3` and `SS1`-`SS4` results, but `weights.json` had no dimension entry for either prefix, so `scorer.js` silently dropped every contribution. The audit caught this and the dimensions are now first-class:
+
+- **Deep (weight 0.05)** — D1, D2, D3 from `deep-analyzer.js`
+- **Session (weight 0.05)** — SS1-SS4 from `session-analyzer.js`
+
+Total dimension weight is now 1.10 instead of 1.0, so existing dimensions each contribute ~9% less of the total — see `standards/weights.json` for the rationale. This is intentional and the score formula now reflects every check the analyzers emit.
+
+### Fixed — pipeline contract bugs
+
+- **F5 medium-severity findings now actually auto-fix.** `inferFixType` was returning `'guided'` for F5 with score ∈ [0.5, 0.8), but `fixer.js` only handled F5 in the `assisted` branch — so medium-severity broken-reference findings fell through to text guidance and never ran `executeAutoFix`.
+- **`scorer.js` no longer crashes silently on missing input.** A bad path (`scorer.js /no/such/file`) used to surface as an unhandled stream error stack trace; now it prints `scorer: cannot read input '...': ENOENT` and exits 1.
+- **`reporter.js --plan plan.json scores.json` no longer eats `plan.json` as the scores file.** Positional argument lookup now skips indices that are values for `--plan`, `--output-dir`, `--format`, and `--before`.
+- **S1-S4 evidence sources** corrected to `corpus-4533` — the `evidence_text` quoted 4,533-repo statistics but the `evidence_sources` field referenced the small qualitative `practical-audit` set.
+- **PR #72 regression coverage** — added scanner tests for BASH_REMATCH multi-link isolation and the three `emit_result` defense paths (unknown check_id, jq failure, empty jq output).
+
+### Added — accuracy baseline observability
+
+The full-corpus baseline runner used to swallow per-repo failures with `2>/dev/null || true`, leaving the operator no signal about how many of the 4,533 repos silently failed reconstruction or scanner timeout:
+
+- **Per-stage failure counters** in `tests/accuracy/run-full-baseline.sh` — separate counts for reconstruct / timeout / scanner-error, list of first 10 failed repo names, warning when failure rate exceeds 5%.
+- **`--dry-run` flag** validates paths, tarball, and script binaries without running the 10-30 minute scan.
+- **Wilson 95% confidence intervals** in `tests/accuracy/compare-results.js`. Several checks have small N (S6=25, S7=354) where the headline accuracy point estimate can swing several percentage points just from labelling noise. The console table is unchanged; a new "Low-N warning" section flags checks where the CI width exceeds 10 percentage points. CI bounds are saved to JSON output for cross-run comparison.
+
+### Engineering hygiene
+
+- All three Dockerfiles (`tests/Dockerfile.e2e`, `tests/docker-e2e/Dockerfile`, `tests/docker-e2e/Dockerfile.full-corpus`) pin `node:20-slim` to a SHA256 digest. Dependabot's `docker` ecosystem can now propose explicit upgrades.
+- New `.dockerignore` keeps `.env`, `.git/`, `node_modules/`, and the multi-MB corpus tarballs out of the build context — both a leak fix and a build-time bloat fix, since all three Dockerfiles use `COPY . /app/`.
+- `npm/package-lock.json` is now committed for reproducible consumer installs.
+- `.gitignore` excludes `__pycache__/`, `*.pyc`, and `state/`.
+
+### Known follow-up
+
+- [#79](https://github.com/0xmariowu/AgentLint/issues/79) — C2 (CHANGELOG) recall regression: 60% → 12% in the v0.6.1 baseline. Wilson CI in this release surfaces the kind of regression that's currently invisible.
+
 ## v0.6.2 (2026-04-14)
 
 Scanner correctness fixes. Your repo score may change — it is now what scanner says it is.

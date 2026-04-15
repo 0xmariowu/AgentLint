@@ -1,6 +1,6 @@
 {
-  "version": "0.6.2",
-  "check_count": 42,
+  "version": "0.7.0",
+  "check_count": 49,
   "dimensions": [
     {
       "name": "Findability",
@@ -85,6 +85,27 @@
         "H6"
       ],
       "count": 6
+    },
+    {
+      "name": "Deep",
+      "id": "deep",
+      "checks": [
+        "D1",
+        "D2",
+        "D3"
+      ],
+      "count": 3
+    },
+    {
+      "name": "Session",
+      "id": "session",
+      "checks": [
+        "SS1",
+        "SS2",
+        "SS3",
+        "SS4"
+      ],
+      "count": 4
     }
   ],
   "stats": {
