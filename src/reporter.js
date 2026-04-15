@@ -495,7 +495,14 @@ body{background:#f9fafb;color:#374151;font-family:var(--font);line-height:1.5;ma
 
 function main() {
   const args = process.argv.slice(2);
-  const scoresFile = args.find(a => !a.startsWith('--'));
+  const flagValueIndices = new Set();
+  const flagsWithValues = new Set(['--plan', '--output-dir', '--format', '--before']);
+  for (let i = 0; i < args.length - 1; i += 1) {
+    if (flagsWithValues.has(args[i])) {
+      flagValueIndices.add(i + 1);
+    }
+  }
+  const scoresFile = args.find((arg, index) => !arg.startsWith('--') && !flagValueIndices.has(index));
   const planFile = args.find((a, i) => args[i - 1] === '--plan');
   const outputDir = args.find((a, i) => args[i - 1] === '--output-dir') || null;
   const format = args.find((a, i) => args[i - 1] === '--format') || 'terminal';
