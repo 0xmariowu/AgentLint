@@ -1,4 +1,4 @@
-FROM node:20-slim
+FROM node:20-slim@sha256:eef3816042c0f522a2ca9655c1947ca6f97c908b0c227aa50e19432646342ab7
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash jq git \
