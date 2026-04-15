@@ -45,7 +45,7 @@ runTest('dimension scores use weighted averages and total score is out of 100', 
 
   assert.equal(output.dimensions.findability.score, 8);
   assert.equal(output.dimensions.workability.score, 3);
-  assert.equal(output.total_score, 21);
+  assert.equal(output.total_score, 19);
 });
 
 runTest('per-project breakdown exists and retains project checks', () => {
@@ -82,7 +82,7 @@ runTest('unknown check prefixes are ignored without crashing', () => {
     { check_id: 'F1', project: 'ignored', score: 1, name: 'Entry file', measured_value: 1 },
   ]);
 
-  assert.equal(output.total_score, 20);
+  assert.equal(output.total_score, 18);
   assert.equal(output.by_project.ignored.findability.checks.length, 1);
   assert.equal(output.by_project.ignored.findability.checks[0].check_id, 'F1');
 });
@@ -97,6 +97,19 @@ runTest('H prefix check is routed to harness dimension', () => {
   assert.equal(output.dimensions.harness.checks.length, 1);
   assert.equal(output.dimensions.harness.checks[0].check_id, 'H1');
   assert.ok(output.by_project.hp.harness, 'per-project harness should exist');
+});
+
+runTest('deep and session analyzer checks contribute to their own dimensions', () => {
+  const output = runScorer([
+    { check_id: 'D1', project: 'demo', score: 1, name: 'Contradictory rules' },
+    { check_id: 'SS1', project: 'demo', score: 0, name: 'Repeated instructions' },
+  ]);
+
+  assert.equal(output.dimensions.deep.checks.length, 1);
+  assert.equal(output.dimensions.deep.checks[0].check_id, 'D1');
+  assert.equal(output.dimensions.session.checks.length, 1);
+  assert.equal(output.dimensions.session.checks[0].check_id, 'SS1');
+  assert.ok(output.total_score > 0, 'deep/session weights should affect the total score');
 });
 
 // ─── S4: Edge-case tests ───────────────────────────────────────────────────
@@ -165,7 +178,7 @@ runTest('all-zero scores produce total_score=0', () => {
 });
 
 runTest('all-one scores produce total_score=100', () => {
-  const records = ['F1', 'I1', 'W1', 'C1', 'S1', 'H1'].map((id) =>
+  const records = ['F1', 'D1', 'I1', 'W1', 'C1', 'SS1', 'S1', 'H1'].map((id) =>
     JSON.stringify({ check_id: id, project: 'perfect', score: 1, name: id })
   );
   const result = runScorerRaw(records.join('\n') + '\n');
@@ -182,6 +195,16 @@ runTest('JSON array input processes all records', () => {
   const output = JSON.parse(result.stdout);
   assert.equal(output.by_project.arr.findability.checks.length, 1);
   assert.equal(output.by_project.arr.workability.checks.length, 1);
+});
+
+runTest('missing input file exits with a concise read error', () => {
+  const missingPath = path.join(__dirname, 'fixtures', 'does-not-exist.jsonl');
+  const result = spawnSync(process.execPath, [scorerPath, missingPath], {
+    encoding: 'utf8',
+  });
+
+  assert.notEqual(result.status, 0, 'missing file should cause non-zero exit');
+  assert.match(result.stderr, /scorer: cannot read input .*does-not-exist\.jsonl/i);
 });
 
 process.stdout.write(`${passed}/${total} tests passed\n`);

@@ -201,25 +201,25 @@
     "S1": {
       "dimension": "safety",
       "name": "Env files gitignored",
-      "evidence_sources": ["anthropic-265", "practical-audit"],
+      "evidence_sources": ["anthropic-265", "corpus-4533"],
       "evidence_text": "Claude Code behavior: Glob tool defaults to CLAUDE_CODE_GLOB_NO_IGNORE=true, meaning .env files are visible to AI even if gitignored at grep level. Corpus analysis: 57 of 4533 repos have .env committed to git."
     },
     "S2": {
       "dimension": "safety",
       "name": "Actions SHA pinned",
-      "evidence_sources": ["practical-audit"],
+      "evidence_sources": ["corpus-4533"],
       "evidence_text": "Corpus analysis: 58% of repos use floating tags for GitHub Actions. A compromised tag can steal CI secrets when AI pushes code. SHA pinning makes actions immutable."
     },
     "S3": {
       "dimension": "safety",
       "name": "Secret scanning configured",
-      "evidence_sources": ["practical-audit"],
+      "evidence_sources": ["corpus-4533"],
       "evidence_text": "Corpus analysis: 98% of repos have no gitleaks config or pre-commit secret scanning. AI agents don't self-check for accidentally written secrets."
     },
     "S4": {
       "dimension": "safety",
       "name": "Security policy exists",
-      "evidence_sources": ["practical-audit"],
+      "evidence_sources": ["corpus-4533"],
       "evidence_text": "Corpus analysis: 92% of repos have no SECURITY.md. Without it, AI has no reference for security-sensitive decisions and users have no vulnerability reporting channel."
     },
     "S5": {

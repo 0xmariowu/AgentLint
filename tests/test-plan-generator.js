@@ -97,6 +97,23 @@ runTest('fix types are assigned from check IDs', () => {
   assert.equal(i3.fix_type, 'guided');
 });
 
+runTest('F5 stays assisted for medium severity scores', () => {
+  const output = runPlanGenerator({
+    by_project: {
+      demo: {
+        findability: makeDimension([
+          { check_id: 'F5', project: 'demo', name: 'All references resolve', measured_value: 1, score: 0.6, detail: '1 broken ref' },
+        ]),
+      },
+    },
+  });
+
+  const f5 = output.items.find((item) => item.check_id === 'F5');
+  assert.ok(f5, 'F5 item should exist');
+  assert.equal(f5.severity, 'medium');
+  assert.equal(f5.fix_type, 'assisted');
+});
+
 runTest('merged items include item_ids and project_count', () => {
   const output = runPlanGenerator(scorerOutput);
 
