@@ -38,12 +38,27 @@ function download(url) {
 async function main() {
   try {
     try {
-      execSync("command -v claude", { stdio: "ignore" });
+      const claudeCheck = process.platform === "win32" ? "where claude" : "command -v claude";
+      execSync(claudeCheck, { stdio: "ignore" });
     } catch {
       console.error(
         "\n  Claude Code not found. Install it first: https://claude.com/download\n"
       );
       process.exit(1);
+    }
+
+    if (process.platform === "win32") {
+      try {
+        execSync("bash --version", { stdio: "ignore" });
+      } catch {
+        console.error(
+          "\nAgentLint requires bash on Windows. Install one of:\n" +
+            "  - Git for Windows (includes Git Bash): https://git-scm.com/download/win\n" +
+            "  - WSL: https://learn.microsoft.com/windows/wsl/install\n" +
+            "Then re-run: npm install -g @0xmariowu/agent-lint\n"
+        );
+        process.exit(1);
+      }
     }
 
     console.log("Downloading AgentLint installer...");
