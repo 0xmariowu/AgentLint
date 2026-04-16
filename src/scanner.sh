@@ -1381,7 +1381,7 @@ WF2
     path_hits="$(git -C "$project_dir" grep -lE '/Users/[a-zA-Z]|/home/[a-z][a-z0-9_-]+/' \
       -- '*.js' '*.ts' '*.py' '*.rb' '*.go' '*.rs' '*.java' '*.sh' '*.yml' '*.yaml' '*.json' '*.toml' \
       ':!.gitleaks.toml' ':!.gitignore' ':!*.example' ':!standards/*' ':!tests/*' ':!test/*' ':!fixtures/*' ':!testdata/*' ':!*.test.*' ':!*.spec.*' ':!*.snap' ':!*.min.js' ':!coverage/*' \
-      2>/dev/null | grep -Ev 'node_modules|\.git/|vendor/|dist/|build/|__tests__/' | wc -l | tr -d '[:space:]')" || path_hits=0
+      2>/dev/null | grep -cEv 'node_modules|\.git/|vendor/|dist/|build/|__tests__/')" || path_hits=0
     path_hits="${path_hits:-0}"
     if [ "${path_hits}" -gt 0 ]; then
       path_examples="$(git -C "$project_dir" grep -lE '/Users/[a-zA-Z]|/home/[a-z][a-z0-9_-]+/' \
