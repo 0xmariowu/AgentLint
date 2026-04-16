@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Your AI agent is only as good as your repo.</strong><br>
-  33 checks. 5 dimensions. Evidence-backed.
+  49 checks. 8 dimensions. Evidence-backed.
 </p>
 
 <p align="center">
