@@ -38,9 +38,14 @@ jobs:
 
   test:
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
         node-version:
           - 20
           - 22
@@ -52,11 +57,30 @@ jobs:
           node-version: ${{ matrix.node-version }}
 
       - name: Install jq
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
+          case "$RUNNER_OS" in
+            Linux)   sudo apt-get update && sudo apt-get install -y jq ;;
+            macOS)   brew install jq ;;
+            Windows) choco install jq -y ;;
+          esac
 
-      - name: Run tests
+      - name: Toolchain versions
+        shell: bash
+        run: |
+          echo "RUNNER_OS=$RUNNER_OS"
+          bash --version | head -1
+          node --version
+          jq --version
+          git --version
+
+      - name: Cross-platform smoke test
+        shell: bash
+        run: bash tests/windows/smoke.sh
+
+      - name: Run full Linux test suite
+        if: runner.os == 'Linux'
+        shell: bash
         run: |
           bash tests/test-scanner.sh
           bash tests/test-action-smoke.sh
@@ -72,6 +96,8 @@ jobs:
           node tests/fixer-safety/test-traversal.js
 
       - name: Prepare deep-analyzer corpus fixture
+        if: runner.os == 'Linux'
+        shell: bash
         run: |
           mkdir -p /tmp/al-corpus/small /tmp/al-corpus/medium /tmp/al-corpus/large
           printf '# Small\nbrief.\n' > /tmp/al-corpus/small/CLAUDE.md
@@ -79,6 +105,8 @@ jobs:
           { printf '# Large\n'; for i in $(seq 1 500); do printf 'line %s of content here\n' "$i"; done; } > /tmp/al-corpus/large/CLAUDE.md
 
       - name: Run deep-analyzer test
+        if: runner.os == 'Linux'
         env:
           AL_CORPUS_DIR: /tmp/al-corpus
+        shell: bash
         run: bash tests/test-deep-analyzer.sh
