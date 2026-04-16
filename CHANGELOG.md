@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.7.1 (unreleased)
+
+### Fixed
+
+- **Windows install no longer fails with `EBADPLATFORM`** (#82). The npm package previously hardcoded `"os": ["darwin", "linux"]`, rejecting Windows before the postinstall script could even run. That field is gone. `npm install -g @0xmariowu/agent-lint` now works on Windows when run from Git Bash or WSL.
+- **Cross-platform postinstall detection.** `npm/postinstall.js` now uses `where claude` on win32 and `command -v claude` elsewhere to find the Claude CLI. On Windows it additionally verifies `bash` is available before attempting to run the installer. When bash is missing, it exits with an actionable message pointing to Git for Windows or WSL rather than a cryptic error.
+- **LF line endings enforced** via `.gitattributes`. Without this, Windows checkouts with default `core.autocrlf=true` would convert `.sh` files to CRLF, breaking the shebang and every heredoc in `src/scanner.sh`.
+
+### Notes
+
+- The scanner itself (`src/scanner.sh`) remains bash. Windows users must install it from inside Git Bash or WSL; the requirements are documented in `README.md`.
+
 ## v0.7.0 (2026-04-15)
 
 Audit-driven minor release. Dimension count grows from 6 to 8, check count from 42 to 49 — your repo score will shift, because the scanner is now finally counting checks it had been silently dropping.
