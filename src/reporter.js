@@ -144,7 +144,7 @@ function generateJsonl(scores, date) {
 function writeOutput(outputDir, fileName, content, label = 'Report') {
   const dir = outputDir || '.';
   fs.mkdirSync(dir, { recursive: true });
-  const filePath = path.join(dir, fileName);
+  const filePath = path.join(dir, path.basename(fileName));
   fs.writeFileSync(filePath, content);
   process.stderr.write(`${label}: ${filePath}\n`);
   return filePath;
