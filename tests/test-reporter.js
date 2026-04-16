@@ -135,6 +135,57 @@ runTest('jsonl format writes valid JSON lines', () => {
   }
 });
 
+runTest('sarif format writes a SARIF report and filters note-level results by default', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-reporter-sarif-'));
+
+  try {
+    const scoresPath = writeFixtureScores(tempDir);
+    runReporter([scoresPath, '--format', 'sarif', '--output-dir', tempDir]);
+
+    const sarifFile = fs.readdirSync(tempDir).find((name) => name.endsWith('.sarif'));
+    assert.ok(sarifFile, 'expected a sarif report file');
+
+    const sarif = JSON.parse(fs.readFileSync(path.join(tempDir, sarifFile), 'utf8'));
+    assert.equal(sarif.version, '2.1.0');
+    assert.equal(sarif.runs[0].tool.driver.name, 'AgentLint');
+
+    const resultRuleIds = sarif.runs[0].results.map((result) => result.ruleId);
+    assert.deepEqual(resultRuleIds.sort(), ['F5', 'W1']);
+
+    const w1 = sarif.runs[0].results.find((result) => result.ruleId === 'W1');
+    assert.equal(w1.level, 'error');
+
+    const f5 = sarif.runs[0].results.find((result) => result.ruleId === 'F5');
+    assert.equal(f5.locations[0].physicalLocation.artifactLocation.uri, 'CLAUDE.md');
+
+    const f1Rule = sarif.runs[0].tool.driver.rules.find((rule) => rule.id === 'F1');
+    assert.ok(f1Rule, 'expected F1 rule metadata to be present');
+    assert.match(f1Rule.helpUri, /evidence\.json#check-F1$/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+runTest('sarif format includes note-level results when --sarif-include-all is set', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-reporter-sarif-all-'));
+
+  try {
+    const scoresPath = writeFixtureScores(tempDir);
+    runReporter([scoresPath, '--format', 'sarif', '--sarif-include-all', '--output-dir', tempDir]);
+
+    const sarifFile = fs.readdirSync(tempDir).find((name) => name.endsWith('.sarif'));
+    assert.ok(sarifFile, 'expected a sarif report file');
+
+    const sarif = JSON.parse(fs.readFileSync(path.join(tempDir, sarifFile), 'utf8'));
+    const f1 = sarif.runs[0].results.find((result) => result.ruleId === 'F1');
+    assert.ok(f1, 'expected note-level result to be included');
+    assert.equal(f1.level, 'note');
+    assert.equal(f1.locations[0].physicalLocation.artifactLocation.uri, 'CLAUDE.md');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 runTest('scores file is not confused with --plan value', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-reporter-plan-'));
 
