@@ -100,6 +100,11 @@ jobs:
           node tests/test-html-report.js
           node tests/fixer-safety/test-traversal.js
 
+      - name: Run SARIF integration test
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash tests/test-sarif-output.sh
+
       - name: Prepare deep-analyzer corpus fixture
         if: runner.os == 'Linux'
         shell: bash

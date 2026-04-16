@@ -18,6 +18,33 @@ Then start a new Claude Code session:
 
 That's it. AgentLint scans your projects, scores them, shows what's wrong, and fixes what it can.
 
+## GitHub Action
+
+Add AgentLint to your CI in three lines:
+
+```yaml
+- uses: 0xmariowu/agent-lint@v0
+  with:
+    fail-below: '60'  # optional: fail the build if score drops below 60
+```
+
+### SARIF integration
+
+To get AgentLint findings in your repo's **Security tab** and as **inline PR annotations**, enable SARIF upload:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write  # required for SARIF upload
+
+steps:
+  - uses: 0xmariowu/agent-lint@v0
+    with:
+      sarif-upload: 'true'
+```
+
+> **Note:** SARIF upload requires Code scanning enabled (free for public repos, GHAS for private). Inline PR annotations via `::warning` commands work on all repos regardless.
+
 ### Platform requirements
 
 The scanner is a bash script, so the host needs a POSIX shell:

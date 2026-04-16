@@ -82,6 +82,23 @@ Add AgentLint to your CI in three lines:
     fail-below: '60'  # optional: fail the build if score drops below 60
 ```
 
+### SARIF integration
+
+To get AgentLint findings in your repo's **Security tab** and as **inline PR annotations**, enable SARIF upload:
+
+```yaml
+permissions:
+  contents: read
+  security-events: write  # required for SARIF upload
+
+steps:
+  - uses: 0xmariowu/agent-lint@v0
+    with:
+      sarif-upload: 'true'
+```
+
+> **Note:** SARIF upload requires Code scanning enabled (free for public repos, GHAS for private). Inline PR annotations via `::warning` commands work on all repos regardless.
+
 **Inputs:**
 - `project-dir` — directory to scan (default: repo root)
 - `fail-below` — minimum score 0-100 (default: 0 = never fail)
