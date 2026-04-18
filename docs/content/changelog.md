@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.8.4 (2026-04-18)
+
+### Fixed
+
+- **`docs/ship-boundary.md`** no longer references artifacts that don't exist in this repo. The v0.8.3 import from VibeKit left behind pointers to `standards/ship-boundary.json`, `.ship-boundary-deny.local`, `bootstrap.sh`, `tests/e2b/`, `configs/**`, `hooks/**`, and rule IDs like `SB-L-01` / `SB-N-05`. SHIP / LOCAL / NEVER examples now match agent-lint's actual layout, and a new "How this is enforced today" section points to the real enforcement surface (`.husky/pre-commit`, `hygiene.yml`, `author-email.yml`, `gitleaks.yml`, `semgrep.yml`).
+- **`docs/rules-style.md`** `§3.12` error-message example now uses `.husky/pre-push`'s real rebase-failure message instead of VibeKit's `scripts/committer`. Dead pointers to `configs/templates/*`, `atomic-dev-environment.md`, and external wiki sections removed.
+
+### Notes
+
+- Docs only. No scanner behavior, check set, or scoring changes. Check count stays 49.
+
 ## v0.8.3 (2026-04-18)
 
 ### Infrastructure
