@@ -1,0 +1,81 @@
+name: Baseline Drift
+
+# Plan §7: for repos with metrics (accuracy / perf), fail the PR if
+# the measured metric drifts >N% from the on-main baseline. Generic
+# reusable workflow — callers plug in their metric file + threshold.
+#
+# Example callers:
+#   - agent-lint: accuracy drop > 2% → fail
+#   - autosearch: channel wall time slower > 20% → fail
+
+on:
+  workflow_call:
+    inputs:
+      metric-file:
+        description: "Path to JSON with {metric_name: value}"
+        type: string
+        required: true
+      baseline-file:
+        description: "Path to baseline JSON in repo"
+        type: string
+        required: true
+      max-drop-percent:
+        description: "Fail if metric drops by more than this % (0-100)"
+        type: number
+        default: 2
+      higher-is-worse:
+        description: "Set true for metrics where higher = regression (e.g. latency)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  enforce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Compare metric to baseline
+        env:
+          METRIC_FILE: ${{ inputs.metric-file }}
+          BASELINE_FILE: ${{ inputs.baseline-file }}
+          MAX_DROP: ${{ inputs.max-drop-percent }}
+          HIGHER_WORSE: ${{ inputs.higher-is-worse }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "$BASELINE_FILE" ]; then
+            echo "::notice::No baseline at $BASELINE_FILE — seeding from current run."
+            cp "$METRIC_FILE" "$BASELINE_FILE"
+            exit 0
+          fi
+
+          python3 - <<'EOF'
+          import json, os, sys
+          current = json.load(open(os.environ["METRIC_FILE"]))
+          baseline = json.load(open(os.environ["BASELINE_FILE"]))
+          max_drop = float(os.environ["MAX_DROP"])
+          higher_worse = os.environ["HIGHER_WORSE"].lower() == "true"
+
+          failures = []
+          for k, base in baseline.items():
+              if k not in current:
+                  continue
+              cur = current[k]
+              if base == 0:
+                  continue
+              delta = (cur - base) / abs(base) * 100.0
+              regressed = (delta > max_drop) if higher_worse else (delta < -max_drop)
+              status = "REGRESSED" if regressed else "ok"
+              print(f"  {k}: baseline={base} current={cur} delta={delta:+.1f}% [{status}]")
+              if regressed:
+                  failures.append((k, base, cur, delta))
+
+          if failures:
+              print(f"::error::{len(failures)} metric(s) regressed > {max_drop}%")
+              for k, b, c, d in failures:
+                  print(f"::error::  {k}: {b} → {c} ({d:+.1f}%)")
+              sys.exit(1)
+          EOF

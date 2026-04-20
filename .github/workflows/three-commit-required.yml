@@ -28,7 +28,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Detect conflict with existing test-required gate
+        id: conflict
+        run: |
+          if git cat-file -e ${{ github.event.pull_request.base.sha }}:.github/workflows/test-required.yml 2>/dev/null; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "test-required.yml exists on base → skipping three-commit (repo uses existing gate)"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Classify commits
+        if: steps.conflict.outputs.skip != 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}

@@ -1,0 +1,61 @@
+name: Coverage Ratchet
+
+# Enforces: test coverage on this PR must be >= coverage on main.
+# Ratchet only goes up, never down (plan §7).
+#
+# Reads current main coverage from `standards/coverage-baseline.json`
+# (owner maintains this file). PR coverage from pytest-cov or nyc.
+#
+# Usage: each repo drops their own coverage-baseline.json + hooks this
+# workflow into their existing test matrix. This workflow is a generic
+# reader — it doesn't run tests itself.
+
+on:
+  workflow_call:
+    inputs:
+      coverage-file:
+        description: "Path to coverage summary JSON produced by test run"
+        type: string
+        required: true
+      baseline-file:
+        description: "Path to baseline JSON in repo"
+        type: string
+        default: standards/coverage-baseline.json
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  enforce:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Compare coverage to baseline
+        env:
+          COVERAGE_FILE: ${{ inputs.coverage-file }}
+          BASELINE_FILE: ${{ inputs.baseline-file }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "$BASELINE_FILE" ]; then
+            echo "::notice::No baseline at $BASELINE_FILE — seeding from current run."
+            mkdir -p "$(dirname "$BASELINE_FILE")"
+            cp "$COVERAGE_FILE" "$BASELINE_FILE"
+            exit 0
+          fi
+
+          # Expect {"total": <percent 0..100>} in both files.
+          current=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["total"])' "$COVERAGE_FILE")
+          baseline=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["total"])' "$BASELINE_FILE")
+
+          echo "baseline=$baseline  current=$current"
+          python3 - <<EOF
+          current = float("$current")
+          baseline = float("$baseline")
+          # Allow 0.5% slack for flakiness; over that = BLOCK.
+          if current + 0.5 < baseline:
+              print(f"::error::Coverage dropped {baseline:.2f}% → {current:.2f}% (> 0.5% slack).")
+              raise SystemExit(1)
+          print(f"Coverage OK (baseline {baseline:.2f}%, current {current:.2f}%).")
+          EOF
