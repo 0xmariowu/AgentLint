@@ -109,23 +109,28 @@ jobs:
 
       - name: Post Codex dispatch comment
         if: steps.pr.outputs.skip != 'true' && steps.loopcheck.outputs.skip != 'true'
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          TRIGGER:   ${{ steps.pr.outputs.trigger }}
+          DETAILS:   ${{ steps.pr.outputs.details }}
+          HEAD_SHA:  ${{ steps.loopcheck.outputs.head_sha }}
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v8.0.0
         with:
           script: |
-            const prNumber = parseInt('${{ steps.pr.outputs.pr_number }}', 10);
-            const trigger  = '${{ steps.pr.outputs.trigger }}';
-            const details  = `${{ steps.pr.outputs.details }}`;
-            const headSha  = '${{ steps.loopcheck.outputs.head_sha }}';
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const trigger  = process.env.TRIGGER || '';
+            const details  = process.env.DETAILS || '(no details)';
+            const headSha  = process.env.HEAD_SHA || '';
 
             const body = [
               '@codex please address the blocking signals on this PR and push a fix commit.',
               '',
-              `**Trigger**: ${trigger}`,
-              `**Details**: ${details}`,
+              '**Trigger**: ' + trigger,
+              '**Details**: ' + details,
               '',
               'Follow the PR\'s `.github/copilot-instructions.md` hard rules. Do not suppress lints, skip tests, or weaken CI.',
               '',
-              `<!-- codex-autofix-dispatch: ${headSha} -->`,
+              '<!-- codex-autofix-dispatch: ' + headSha + ' -->',
             ].join('\n');
 
             await github.rest.issues.createComment({
@@ -134,4 +139,4 @@ jobs:
               issue_number: prNumber,
               body: body,
             });
-            core.notice(`Codex dispatched on PR #${prNumber} (head ${headSha})`);
+            core.notice('Codex dispatched on PR #' + prNumber + ' (head ' + headSha + ')');
