@@ -14,13 +14,11 @@ jobs:
         run: |
           BASE="${{ github.event.pull_request.base.sha }}"
           HEAD="${{ github.event.pull_request.head.sha }}"
-          OVER=0
           while IFS= read -r file; do
             [ -f "$file" ] || continue
             LINES=$(wc -l < "$file")
             if [ "$LINES" -gt 500 ]; then
               echo "::warning file=$file::$file has $LINES lines (>500) — consider splitting"
-              OVER=1
             elif [ "$LINES" -gt 300 ]; then
               echo "::notice file=$file::$file has $LINES lines (>300) — advisory"
             fi
