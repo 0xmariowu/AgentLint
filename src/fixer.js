@@ -13,11 +13,15 @@ const DEFAULT_ITEM_IDS = new Map([
   ['I5', 'auto'],
   ['F5', 'assisted'],
   ['C2', 'assisted'],
+  ['W9', 'assisted'],
+  ['W10', 'assisted'],
+  ['W11', 'auto'],
+  ['H8', 'assisted'],
 ]);
 
 function usage() {
-  process.stderr.write('Usage: node src/fixer.js <plan-json-file-or-stdin> --project-dir <path> --items <id1,id2,...>\n');
-  process.exit(1);
+  process.stderr.write('Usage: node src/fixer.js <plan-json-file-or-stdin> --project-dir <path> (--items <id1,id2,...> | --checks <check1,check2,...>)\n');
+  process.exit(0);
 }
 
 function parseArgs(argv) {
@@ -25,6 +29,7 @@ function parseArgs(argv) {
     planPath: null,
     projectDir: null,
     selectedItemsRaw: null,
+    selectedChecksRaw: null,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -64,6 +69,21 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (arg === '--checks') {
+      const next = argv[i + 1];
+      if (!next || next.startsWith('--')) {
+        throw new Error('--checks requires a comma-separated list of check IDs');
+      }
+      args.selectedChecksRaw = next;
+      i += 1;
+      continue;
+    }
+
+    if (arg.startsWith('--checks=')) {
+      args.selectedChecksRaw = arg.slice('--checks='.length);
+      continue;
+    }
+
     if (!arg.startsWith('--') && args.planPath === null) {
       args.planPath = arg;
       continue;
@@ -76,20 +96,25 @@ function parseArgs(argv) {
     throw new Error('--project-dir is required');
   }
 
-  if (!args.selectedItemsRaw) {
-    throw new Error('--items is required');
+  // Accept --items OR --checks (not both required)
+  if (!args.selectedItemsRaw && !args.selectedChecksRaw) {
+    throw new Error('--items or --checks is required');
   }
 
-  const selectedItems = args.selectedItemsRaw
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
-
-  if (selectedItems.length === 0) {
-    throw new Error('--items must contain at least one id');
+  if (args.selectedItemsRaw) {
+    args.selectedItems = args.selectedItemsRaw.split(',').map((value) => value.trim()).filter(Boolean);
+    if (args.selectedItems.length === 0) {
+      throw new Error('--items must contain at least one id');
+    }
   }
 
-  args.selectedItems = selectedItems;
+  if (args.selectedChecksRaw) {
+    args.selectedChecks = args.selectedChecksRaw.split(',').map((value) => value.trim().toUpperCase()).filter(Boolean);
+    if (args.selectedChecks.length === 0) {
+      throw new Error('--checks must contain at least one check ID');
+    }
+  }
+
   args.projectDir = path.resolve(args.projectDir); // nosemgrep: path-join-resolve-traversal
 
   if (!fs.existsSync(path.join(args.projectDir, '.git'))) { // nosemgrep: path-join-resolve-traversal
@@ -543,7 +568,86 @@ function executeAssistedC2(projectDir, projectName) {
   };
 }
 
+function executeAutoW11(projectDir) {
+  const templatePath = path.join(__dirname, '..', 'templates', 'ci', 'test-required.yml');
+  const targetDir = path.join(projectDir, '.github', 'workflows'); // nosemgrep: path-join-resolve-traversal
+  const targetPath = path.join(targetDir, 'test-required.yml'); // nosemgrep: path-join-resolve-traversal
+
+  if (!fs.existsSync(templatePath)) {
+    return { status: 'failed', detail: 'Template not found: templates/ci/test-required.yml' };
+  }
+
+  // Guard against intermediate directory symlink escape before mkdirSync follows it.
+  // Use realpathSync for projectDir too to handle OS-level symlinks (e.g. /tmp → /private/tmp on macOS).
+  const resolvedProject = fs.realpathSync(projectDir); // nosemgrep: path-join-resolve-traversal
+  const resolvedTargetDir = fs.existsSync(targetDir) // nosemgrep: path-join-resolve-traversal
+    ? fs.realpathSync(targetDir)
+    : path.resolve(resolvedProject, '.github', 'workflows'); // nosemgrep: path-join-resolve-traversal
+  if (!resolvedTargetDir.startsWith(resolvedProject + path.sep)) {
+    return { status: 'failed', detail: 'Refusing to write outside project directory (symlink detected).' };
+  }
+
+  try {
+    const stat = fs.lstatSync(targetPath);
+    if (stat.isSymbolicLink()) {
+      return { status: 'failed', detail: 'Skipped: .github/workflows/test-required.yml is a symlink — refusing to write.' };
+    }
+    return { status: 'failed', detail: 'Skipped: .github/workflows/test-required.yml already exists.' };
+  } catch (_) { /* ENOENT — safe to create */ }
+
+  fs.mkdirSync(targetDir, { recursive: true });
+  const template = fs.readFileSync(templatePath, 'utf8');
+  try {
+    fs.writeFileSync(targetPath, template, { flag: 'wx' });
+  } catch (err) {
+    return { status: 'failed', detail: `Failed to create test-required.yml: ${err.message}` };
+  }
+  return { status: 'fixed', detail: 'Created .github/workflows/test-required.yml from template.' };
+}
+
+function executeAssistedH8(projectDir) {
+  const templatePath = path.join(__dirname, '..', 'templates', 'hooks', '_shared.sh');
+  const hooksDir = path.join(projectDir, 'hooks'); // nosemgrep: path-join-resolve-traversal
+  const targetPath = path.join(hooksDir, '_shared.sh'); // nosemgrep: path-join-resolve-traversal
+
+  if (!fs.existsSync(templatePath)) {
+    return { status: 'failed', detail: 'Template not found: templates/hooks/_shared.sh' };
+  }
+
+  if (!fs.existsSync(hooksDir)) {
+    return { status: 'guided', detail: 'No hooks/ directory found. Create hooks/ directory first, then run: cp templates/hooks/_shared.sh hooks/_shared.sh && source hooks/_shared.sh in your hook files.' };
+  }
+
+  // Guard against hooksDir being a symlink pointing outside project.
+  // Use realpathSync for projectDir too to handle OS-level symlinks (e.g. /tmp → /private/tmp on macOS).
+  const resolvedProject = fs.realpathSync(projectDir); // nosemgrep: path-join-resolve-traversal
+  const resolvedHooksDir = fs.realpathSync(hooksDir); // nosemgrep: path-join-resolve-traversal
+  if (!resolvedHooksDir.startsWith(resolvedProject + path.sep)) {
+    return { status: 'failed', detail: 'Refusing to write outside project directory (symlink detected in hooks/).' };
+  }
+
+  try {
+    const stat = fs.lstatSync(targetPath);
+    if (stat.isSymbolicLink()) {
+      return { status: 'failed', detail: 'Skipped: hooks/_shared.sh is a symlink — refusing to write.' };
+    }
+    return { status: 'failed', detail: 'Skipped: hooks/_shared.sh already exists.' };
+  } catch (_) { /* ENOENT — safe to create */ }
+
+  const template = fs.readFileSync(templatePath, 'utf8');
+  try {
+    fs.writeFileSync(targetPath, template, { flag: 'wx' });
+  } catch (err) {
+    return { status: 'failed', detail: `Failed to create hooks/_shared.sh: ${err.message}` };
+  }
+  return { status: 'fixed', detail: 'Created hooks/_shared.sh with fail_with_help() function. Add: source "$(dirname "$0")/_shared.sh" to your hook files.' };
+}
+
 function executeAutoFix(checkId, projectDir, filePath, backupRoot, backedSet) {
+  if (checkId === 'W11') {
+    return executeAutoW11(projectDir);
+  }
+
   if (!filePath) {
     return {
       status: 'failed',
@@ -642,6 +746,26 @@ function run() {
     }
   }
 
+  // Resolve --checks (check IDs) to selectedItems (numeric ids)
+  if (args.selectedChecks && args.selectedChecks.length > 0) {
+    const resolvedIds = [];
+    for (const checkId of args.selectedChecks) {
+      let found = false;
+      for (const [key, parsed] of itemsById.entries()) {
+        if (parsed.check_id === checkId) {
+          resolvedIds.push(key);
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        executed.push({ id: checkId, check_id: checkId, status: 'failed', detail: `No plan item found for check ID: ${checkId}. Run 'agentlint check' first to generate a plan.` });
+      }
+    }
+    if (!args.selectedItems) args.selectedItems = [];
+    args.selectedItems = args.selectedItems.concat(resolvedIds);
+  }
+
   for (const selectedId of args.selectedItems) {
     const selected = itemsById.get(selectedId);
     if (!selected) {
@@ -672,6 +796,12 @@ function run() {
 
       if (selected.check_id === 'C2') {
         const result = executeAssistedC2(projectDir, projectName);
+        executed.push(buildExecutedRecord(selected, result.status, result.detail));
+        continue;
+      }
+
+      if (selected.check_id === 'H8') {
+        const result = executeAssistedH8(projectDir);
         executed.push(buildExecutedRecord(selected, result.status, result.detail));
         continue;
       }

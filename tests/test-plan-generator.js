@@ -97,6 +97,16 @@ runTest('fix types are assigned from check IDs', () => {
   assert.equal(i3.fix_type, 'guided');
 });
 
+runTest('every item includes a fix_command for its check ID', () => {
+  const output = runPlanGenerator(scorerOutput);
+
+  assert.ok(output.items.length > 0, 'fixture should produce plan items');
+  for (const item of output.items) {
+    assert.equal(item.fix_command, `agentlint fix ${item.check_id}`);
+    assert.match(item.fix_command, /^agentlint fix [A-Z][0-9]+$/);
+  }
+});
+
 runTest('F5 stays assisted for medium severity scores', () => {
   const output = runPlanGenerator({
     by_project: {

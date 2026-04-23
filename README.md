@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Setup, check, and fix your repo for AI-native development.</strong><br>
-  53 checks. 8 dimensions. Works across Claude Code, Codex, Cursor, Copilot, Gemini, Windsurf, Cline.
+  58 checks. 8 dimensions. Works across Claude Code, Codex, Cursor, Copilot, Gemini, Windsurf, Cline.
 </p>
 
 <p align="center">
@@ -30,8 +30,9 @@ AgentLint is a three-step toolkit for AI-native development:
 
 ```bash
 agentlint setup --lang python ~/Projects/my-repo   # bootstrap CI/hooks/templates
-agentlint check --project-dir ~/Projects/my-repo   # diagnose (49 checks, 8 dimensions)
+agentlint check --project-dir ~/Projects/my-repo   # diagnose (58 checks, 8 dimensions)
 agentlint fix   --project-dir ~/Projects/my-repo   # auto-fix issues found
+agentlint fix W11 --project-dir ~/Projects/my-repo # fix a specific check directly
 ```
 
 **setup** installs the full AI-native stack: 12 CI workflows, git hooks, CLAUDE.md template, plan format, compliance tests.  
@@ -212,6 +213,11 @@ AgentLint is built on data most developers never see:
 | W4 | Linter configured | Mechanical formatting frees AI from guessing style |
 | W5 | No files over 256 KB | Claude Code cannot read them — hard error |
 | W6 | Pre-commit hooks are fast | Claude Code never uses --no-verify. Slow hooks = stuck commits |
+| W7 | Local fast test command documented | AI needs to know what to run before push |
+| W8 | npm test script exists | `npm test` fails with "missing script" if not defined |
+| W9 | Release workflow validates version | Tag-only release workflows silently ship mismatched binaries |
+| W10 | Test cost tiers defined (Python) | Without pytest markers, AI can't run fast tests locally |
+| W11 | feat/fix gated on test commits | Untested features are untested assumptions — needs `test-required.yml` |
 
 ### Continuity — can next session pick up?
 
@@ -222,6 +228,7 @@ AgentLint is built on data most developers never see:
 | C3 | Changelog has "why" | "Updated INDEX" says nothing. "Fixed broken path" says everything |
 | C4 | Plans in repo | Plans in Jira don't exist for AI |
 | C5 | CLAUDE.local.md not in git | Private per-user file. Claude Code requires .gitignore |
+| C6 | HANDOFF has verify conditions | Status text isn't testable — next session needs scores/thresholds to confirm readiness |
 
 ### Safety — is AI working securely?
 
@@ -248,6 +255,8 @@ These checks run against `.claude/settings.json`. Repos without that file score 
 | H4 | No dangerous auto-approve | Bare `Bash(*)`, `*`, `mcp__*`, `sudo`, `rm -rf`, `git push --force` in `permissions.allow` = giving the agent root shell |
 | H5 | `.env` deny covers variants | Denying `.env` without `.env.local`, `.env.production` etc. leaves the most sensitive variants readable |
 | H6 | Hook scripts network access | Detects `curl`/`wget`/`fetch` in hook scripts — tool I/O could be exfiltrated to external servers |
+| H7 | Gate workflows are blocking | warn-only gates have zero enforcement — a gate that never fails is not a gate |
+| H8 | Hook errors are structured | Unstructured errors require reading source to fix — `Rule:/Fix:` format is immediately actionable |
 
 ### Optional: AI Deep Analysis
 

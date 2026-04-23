@@ -389,6 +389,36 @@
       "name": "Total injected content within budget",
       "evidence_sources": ["corpus-4533", "ifscale"],
       "evidence_text": "Corpus analysis: total injected content (CLAUDE.md + AGENTS.md + rules/*.md) median is 116 non-empty lines, outliers reach 1000+. IFScale research shows instruction compliance degrades beyond ~150 instructions. The right metric is total injected content across all files, not just entry file length."
+    },
+    "W9": {
+      "dimension": "workability",
+      "name": "Release workflow validates version consistency",
+      "evidence_sources": ["corpus-4533", "vibekit-audit"],
+      "evidence_text": "Audit of autosearch, lazie, and vibekit release workflows: projects that validate tag against source version file (pyproject.toml, package.json) catch version drift before publish. Projects with only tag-format checks (vX.Y.Z regex) silently ship mismatched binaries. autosearch release.yml triple-checks: tag extract → source compare → fail with ::error:: on mismatch."
+    },
+    "W10": {
+      "dimension": "workability",
+      "name": "Test cost tiers defined (pytest markers)",
+      "evidence_sources": ["corpus-4533", "vibekit-audit"],
+      "evidence_text": "Audit of autosearch: projects with ≥3 pytest marker tiers (unit/smoke/live) let AI agents run only fast tests locally. Without cost tiers, every test run hits network APIs and takes minutes — AI agents either skip tests or wait too long. autosearch defines 6 markers (network, real_llm, smoke, perf, live, avo); CI runs unit-only on PR, nightly runs live. Applies to Python projects only."
+    },
+    "W11": {
+      "dimension": "workability",
+      "name": "feat/fix commits paired with test commits (test-required gate)",
+      "evidence_sources": ["vibekit-audit"],
+      "evidence_text": "vibekit test-required.yml: commit-type-based gating (feat/fix subjects trigger test requirement) prevented 4+ untested feature merges in production. File-change-based gating has high false-positive rate; commit-subject gating is precise. The gate checks for test(...) commit subject in same PR, with explicit opt-out checkbox. This pattern is directly reproducible via .github/workflows/test-required.yml template."
+    },
+    "H8": {
+      "dimension": "harness",
+      "name": "Hook errors use structured format (what/rule/fix)",
+      "evidence_sources": ["vibekit-audit"],
+      "evidence_text": "vibekit hooks/_shared.sh: all hook errors follow fail_with_help(what, rule, fix, see) pattern. Unstructured hook errors require users to read hook source code to understand what to do — structured errors are immediately actionable. Pattern verified in autosearch and lazie committer scripts (both emit scoped warnings with override instructions). Reduces hook friction for AI agents that parse stderr."
+    },
+    "C6": {
+      "dimension": "continuity",
+      "name": "HANDOFF.md contains verify conditions (not just status)",
+      "evidence_sources": ["vibekit-audit"],
+      "evidence_text": "autosearch HANDOFF.md includes verify conditions: 'E2B Phase 1: 96.3/100 🟢 READY', 'E2B Phase 2: 33/33 ✅'. Plain status text ('CI passing', 'in progress') is not testable — verify conditions are. Without conditions, the next session cannot confirm readiness; it must re-run all checks. Verified across autosearch (strong) and lazie (weak — only status text)."
     }
   }
 }
