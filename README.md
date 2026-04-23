@@ -45,8 +45,6 @@ agentlint fix W11 --project-dir ~/Projects/my-repo # fix a specific check direct
 
 ```bash
 npm install -g agentlint-ai
-# or one-shot:
-npx agentlint-ai init
 ```
 
 Then start a new Claude Code session:
