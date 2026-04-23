@@ -56,6 +56,13 @@ function download(url) {
 }
 
 async function main() {
+  // Support both `npx @0xmariowu/agent-lint` and `npx @0xmariowu/agent-lint init`
+  const args = process.argv.slice(2);
+  if (args.length > 0 && args[0] !== "init") {
+    console.error("Usage: npx @0xmariowu/agent-lint [init]");
+    process.exit(1);
+  }
+
   console.log(LOGO);
   console.log("\x1b[1mAgentLint v" + PKG_VERSION + "\x1b[0m — AI-native repo diagnostics");
   console.log("─".repeat(62));

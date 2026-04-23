@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v0.9.3 (2026-04-23)
+
+- You can now install with `npx @0xmariowu/agent-lint init` — no global install needed, runs the full onboarding UI once and exits (matches `npx vibeusage init` pattern)
+- `npx @0xmariowu/agent-lint` (without `init`) also works — defaults to the same install flow
+
 ## v0.9.2 (2026-04-23)
 
 - You can now install with `npm install -g @0xmariowu/agent-lint` even without Claude Code — the CLI works standalone, and the installer shows a branded ASCII logo with clear per-step progress
