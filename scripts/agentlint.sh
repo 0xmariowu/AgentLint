@@ -16,6 +16,10 @@ _SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || readlink "${BASH_SOURCE[
 SCRIPT_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
 
 case "${1:-}" in
+  init)
+    shift
+    exec node "$SCRIPT_DIR/../postinstall.js" init "$@"
+    ;;
   setup)
     shift
     exec "$SCRIPT_DIR/setup.sh" "$@"

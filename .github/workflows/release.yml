@@ -71,7 +71,7 @@ jobs:
           # are excluded because old entries legitimately reference older
           # counts.
           drift=0
-          for f in README.md npm/README.md docs/content/intro.md; do
+          for f in README.md docs/content/intro.md; do
             [ -f "$f" ] || continue
             bad_checks=$(grep -oE "[0-9]+ check[s]?[^a-zA-Z0-9]" "$f" | grep -oE "^[0-9]+" | sort -u | grep -vx "$ACTUAL_CHECKS" || true)
             bad_dims=$(grep -oE "[0-9]+ dimension[s]?[^a-zA-Z0-9]" "$f" | grep -oE "^[0-9]+" | sort -u | grep -vx "$ACTUAL_DIMS" || true)
@@ -127,7 +127,6 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          cd npm
           node -e "
             const pkg = require('./package.json');
             pkg.version = '$VERSION';
@@ -136,7 +135,7 @@ jobs:
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > .npmrc
           npm publish --access public
           rm -f .npmrc
-          echo "Published @0xmariowu/agent-lint@${VERSION} to npm"
+          echo "Published agent-lint@${VERSION} to npm"
 
       - name: Sync to website repo (agent-lint-simple-green)
         if: steps.check.outputs.exists == 'false'
@@ -217,5 +216,5 @@ jobs:
           {
             echo "## Released ${VERSION}"
             echo "- GitHub Release: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${TAG}"
-            echo "- npm: [@0xmariowu/agent-lint@${VERSION}](https://www.npmjs.com/package/@0xmariowu/agent-lint)"
+            echo "- npm: [agent-lint@${VERSION}](https://www.npmjs.com/package/agent-lint)"
           } >> "$GITHUB_STEP_SUMMARY"

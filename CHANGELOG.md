@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## v1.0.0 (2026-04-23)
+
+**Breaking: package renamed from `@0xmariowu/agent-lint` to `agent-lint`**
+
+Migration:
+```bash
+npm uninstall -g @0xmariowu/agent-lint  # remove old
+npm install -g agent-lint               # install new (unscoped)
+# or: npx agent-lint init
+```
+
+- Install is now `npm install -g agent-lint` (unscoped) or `npx agent-lint init` — no more @0xmariowu/ scope
+- Self-contained npm package: postinstall.js and install.sh are bundled, no more GitHub raw downloads during install
+- Deleted the separate /npm/ shim directory — single source of truth at root
+
 ## v0.9.3 (2026-04-23)
 
 - You can now install with `npx @0xmariowu/agent-lint init` — no global install needed, runs the full onboarding UI once and exits (matches `npx vibeusage init` pattern)

@@ -1,7 +1,6 @@
 {
   "name": "agent-lint",
-  "private": true,
-  "version": "0.9.3",
+  "version": "1.0.0",
   "description": "Setup, check, and fix your repo for AI-native development.",
   "license": "MIT",
   "repository": {
@@ -27,14 +26,22 @@
     "standards/",
     "commands/",
     "templates/",
+    "postinstall.js",
+    "scripts/install.sh",
+    "scripts/agentlint.sh",
     "scripts/setup.sh",
-    ".claude-plugin/"
+    "scripts/generate-metadata.sh",
+    ".claude-plugin/",
+    "README.md",
+    "LICENSE"
   ],
   "bin": {
+    "agent-lint": "scripts/agentlint.sh",
     "al-scan": "src/scanner.sh",
     "agentlint": "scripts/agentlint.sh"
   },
   "scripts": {
+    "postinstall": "node postinstall.js",
     "test": "bash tests/test_compliance.sh && bash tests/test-scanner.sh"
   }
 }

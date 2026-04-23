@@ -2,14 +2,9 @@
 "use strict";
 
 const { execSync } = require("child_process");
-const https = require("https");
-const fs = require("fs");
-const os = require("os");
 const path = require("path");
 
 const { version: PKG_VERSION } = require("./package.json");
-const INSTALL_URL =
-  `https://raw.githubusercontent.com/0xmariowu/AgentLint/v${PKG_VERSION}/scripts/install.sh`;
 
 const LOGO = `
   █████╗  ██████╗ ███████╗███╗   ██╗████████╗██╗     ██╗███╗   ██╗████████╗
@@ -38,28 +33,11 @@ function box(lines) {
   console.log(border);
 }
 
-function download(url) {
-  return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return download(res.headers.location).then(resolve).catch(reject);
-      }
-      if (res.statusCode !== 200) {
-        return reject(new Error(`HTTP ${res.statusCode}`));
-      }
-      const chunks = [];
-      res.on("data", (c) => chunks.push(c));
-      res.on("end", () => resolve(Buffer.concat(chunks).toString()));
-      res.on("error", reject);
-    }).on("error", reject);
-  });
-}
-
-async function main() {
-  // Support both `npx @0xmariowu/agent-lint` and `npx @0xmariowu/agent-lint init`
+function main() {
+  // Support both `npx agent-lint` and `npx agent-lint init`.
   const args = process.argv.slice(2);
   if (args.length > 0 && args[0] !== "init") {
-    console.error("Usage: npx @0xmariowu/agent-lint [init]");
+    console.error("Usage: npx agent-lint [init]");
     process.exit(1);
   }
 
@@ -82,7 +60,7 @@ async function main() {
       console.log("  AgentLint requires bash on Windows. Install one of:");
       console.log("    - Git for Windows: https://git-scm.com/download/win");
       console.log("    - WSL: https://learn.microsoft.com/windows/wsl/install");
-      console.log("  Then re-run: npm install -g @0xmariowu/agent-lint");
+      console.log("  Then re-run: npm install -g agent-lint");
       console.log();
       process.exit(1);
     }
@@ -127,21 +105,17 @@ async function main() {
     return;
   }
 
-  // Download and run install.sh for Claude Code plugin
+  // Run bundled install.sh for Claude Code plugin integration.
   console.log();
   console.log("Configuring Claude Code plugin...");
   console.log();
 
   try {
-    const script = await download(INSTALL_URL);
-    const tmp = path.join(os.tmpdir(), `agent-lint-install-${Date.now()}.sh`);
-    fs.writeFileSync(tmp, script, { mode: 0o755 });
-    execSync(`bash "${tmp}"`, { stdio: "inherit" });
-    fs.unlinkSync(tmp);
+    execSync(`bash "${path.join(__dirname, "scripts", "install.sh")}"`, { stdio: "inherit" });
   } catch (err) {
     console.error(`\n  Installation failed: ${err.message}`);
     console.error("  Manual install:");
-    console.error(`    curl -fsSL https://raw.githubusercontent.com/0xmariowu/AgentLint/v${PKG_VERSION}/scripts/install.sh | bash`);
+    console.error(`    bash "${path.join(__dirname, "scripts", "install.sh")}"`);
     console.error();
     process.exit(1);
   }
