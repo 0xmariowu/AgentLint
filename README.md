@@ -30,6 +30,12 @@
 npx agentlint-ai
 ```
 
+Or with curl:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/0xmariowu/agent-lint/main/scripts/install-user.sh | bash
+```
+
 Then start a new Claude Code session and run:
 
 ```
