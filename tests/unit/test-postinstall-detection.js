@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const postinstallPath = path.join(__dirname, '..', '..', 'npm', 'postinstall.js');
+const postinstallPath = path.join(__dirname, '..', '..', 'postinstall.js');
 
 const scenarios = [
   {
@@ -18,13 +18,13 @@ const scenarios = [
     expectStderr: /^$/,
   },
   {
-    // Claude present, download fails: exit 1, show error
-    name: 'darwin-claude-present-download-fails',
+    // Claude present, bundled installer fails: exit 1, show error
+    name: 'darwin-claude-present-installer-fails',
     platform: 'darwin',
-    mocks: { claude: 'ok', download: 'fail' },
+    mocks: { claude: 'ok', installer: 'fail' },
     expectExit: 1,
     expectStdout: /Configuring Claude Code plugin/i,
-    expectStderr: /Installation failed: mock download failed/i,
+    expectStderr: /Installation failed: mock installer failed/i,
   },
   {
     // Windows, Claude missing: exit 0, graceful (CLI still usable)
@@ -45,21 +45,19 @@ const scenarios = [
     expectStderr: /^$/,
   },
   {
-    // Windows, Claude present, bash present, download fails: exit 1
-    name: 'win32-claude-present-bash-present-download-fails',
+    // Windows, Claude present, bash present, bundled installer fails: exit 1
+    name: 'win32-claude-present-bash-present-installer-fails',
     platform: 'win32',
-    mocks: { claude: 'ok', bash: 'ok', download: 'fail' },
+    mocks: { claude: 'ok', bash: 'ok', installer: 'fail' },
     expectExit: 1,
     expectStdout: /Configuring Claude Code plugin/i,
-    expectStderr: /Installation failed: mock download failed/i,
+    expectStderr: /Installation failed: mock installer failed/i,
   },
 ];
 
 const bootstrap = `
 'use strict';
-const { EventEmitter } = require('node:events');
 const childProcess = require('node:child_process');
-const https = require('node:https');
 
 const scenario = JSON.parse(process.env.AL_SCENARIO);
 
@@ -101,30 +99,6 @@ childProcess.execSync = function mockExecSync(command) {
   }
 
   throw new Error('unexpected execSync command: ' + command);
-};
-
-https.get = function mockGet(url, callback) {
-  const request = new EventEmitter();
-
-  process.nextTick(() => {
-    const mocks = scenario.mocks || {};
-
-    if (mocks.download === 'fail') {
-      request.emit('error', new Error('mock download failed'));
-      return;
-    }
-
-    const response = new EventEmitter();
-    response.statusCode = 200;
-    response.headers = {};
-    callback(response);
-    process.nextTick(() => {
-      response.emit('data', Buffer.from('#!/usr/bin/env bash\\necho mocked\\n'));
-      response.emit('end');
-    });
-  });
-
-  return request;
 };
 
 require(process.env.AL_POSTINSTALL);

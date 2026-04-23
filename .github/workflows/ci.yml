@@ -158,20 +158,16 @@ jobs:
             Windows) choco install jq -y ;;
           esac
 
-      # Path A: Pack the npm tarball and install it with --ignore-scripts.
-      # The published package is a BOOTSTRAPPER (README + package.json +
-      # postinstall.js = ~5KB). The scanner itself ships via the Claude Code
-      # plugin mechanism, not inside this tarball. So the only meaningful
-      # install-time assertion here is: the `os` field that caused #82 is
-      # really gone and the tarball installs cleanly on every OS.
+      # Path A: Pack the root npm package and install it with --ignore-scripts.
+      # The package is self-contained: CLI, installer scripts, postinstall.js,
+      # README, and license all ship from the repository root.
       - name: Pack npm tarball
         shell: bash
         run: |
-          cd npm
           npm pack
-          ls -la 0xmariowu-agent-lint-*.tgz
+          ls -la agent-lint-*.tgz
           TARBALL_DEST="${RUNNER_TEMP:-/tmp}/al.tgz"
-          mv 0xmariowu-agent-lint-*.tgz "$TARBALL_DEST"
+          mv agent-lint-*.tgz "$TARBALL_DEST"
           echo "TARBALL_PATH=$TARBALL_DEST" >> "$GITHUB_ENV"
 
       - name: Install globally with --ignore-scripts
@@ -179,31 +175,47 @@ jobs:
         run: |
           npm install -g --ignore-scripts "$TARBALL_PATH"
 
-      - name: Verify installed package has no os field (regression test for #82)
+      - name: Verify installed root package layout
         shell: bash
         run: |
           PREFIX="$(npm prefix -g)"
-          PKG="$PREFIX/node_modules/@0xmariowu/agent-lint/package.json"
-          [ -f "$PKG" ] || PKG="$PREFIX/lib/node_modules/@0xmariowu/agent-lint/package.json"
+          PKG_DIR="$PREFIX/node_modules/agent-lint"
+          [ -d "$PKG_DIR" ] || PKG_DIR="$PREFIX/lib/node_modules/agent-lint"
+          PKG="$PKG_DIR/package.json"
           echo "Inspecting: $PKG"
           [ -f "$PKG" ]
+          [ -f "$PKG_DIR/postinstall.js" ]
+          [ -f "$PKG_DIR/scripts/install.sh" ]
+          [ -f "$PKG_DIR/scripts/agentlint.sh" ]
+          [ -f "$PKG_DIR/scripts/setup.sh" ]
+          [ -f "$PKG_DIR/scripts/generate-metadata.sh" ]
+          [ -f "$PKG_DIR/README.md" ]
+          [ -f "$PKG_DIR/LICENSE" ]
           # Pass the path via argv so Windows backslashes aren't reinterpreted
           # as JS escape sequences inside a `node -e` source string.
           node -e '
             const p = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+            if (p.name !== "agent-lint") {
+              console.error("FAIL: unexpected package name:", p.name);
+              process.exit(1);
+            }
             if (Array.isArray(p.os) || p.os) {
               console.error("FAIL: os field still present in installed package:", JSON.stringify(p.os));
               process.exit(1);
             }
-            console.log("OK: no os field in installed package.json");
+            if (!p.bin || p.bin["agent-lint"] !== "scripts/agentlint.sh" || p.bin.agentlint !== "scripts/agentlint.sh") {
+              console.error("FAIL: bin aliases missing or incorrect:", JSON.stringify(p.bin));
+              process.exit(1);
+            }
+            console.log("OK: root package layout and bin aliases verified");
           ' "$PKG"
 
       - name: Verify postinstall.js ships with Windows detection
         shell: bash
         run: |
           PREFIX="$(npm prefix -g)"
-          PI="$PREFIX/node_modules/@0xmariowu/agent-lint/postinstall.js"
-          [ -f "$PI" ] || PI="$PREFIX/lib/node_modules/@0xmariowu/agent-lint/postinstall.js"
+          PI="$PREFIX/node_modules/agent-lint/postinstall.js"
+          [ -f "$PI" ] || PI="$PREFIX/lib/node_modules/agent-lint/postinstall.js"
           [ -f "$PI" ]
           grep -q "where claude" "$PI"
           grep -q "bash --version" "$PI"
@@ -216,7 +228,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          output=$(node npm/postinstall.js 2>&1)
+          output=$(node postinstall.js 2>&1)
           code=$?
           set -e
           echo "exit=$code"

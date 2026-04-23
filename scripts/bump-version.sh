@@ -11,10 +11,8 @@ export ROOT
 PLUGIN="$ROOT/.claude-plugin/plugin.json"
 MARKETPLACE="$ROOT/.claude-plugin/marketplace.json"
 PACKAGE="$ROOT/package.json"
-NPM_PACKAGE="$ROOT/npm/package.json"
 SECURITY="$ROOT/SECURITY.md"
 README="$ROOT/README.md"
-NPM_README="$ROOT/npm/README.md"
 INTRO="$ROOT/docs/content/intro.md"
 
 current=$(python3 -c "import json; print(json.load(open('$PLUGIN'))['version'])")
@@ -32,11 +30,11 @@ echo "New version: $new"
 
 # ── 1. Update JSON files ─────────────────────────────────────────
 
-PLUGIN="$PLUGIN" PACKAGE="$PACKAGE" NPM_PACKAGE="$NPM_PACKAGE" MARKETPLACE="$MARKETPLACE" NEW_VERSION="$new" python3 -c "
+PLUGIN="$PLUGIN" PACKAGE="$PACKAGE" MARKETPLACE="$MARKETPLACE" NEW_VERSION="$new" python3 -c "
 import json, os
 
 nv = os.environ['NEW_VERSION']
-for p in [os.environ['PLUGIN'], os.environ['PACKAGE'], os.environ['NPM_PACKAGE']]:
+for p in [os.environ['PLUGIN'], os.environ['PACKAGE']]:
     with open(p) as f:
         data = json.load(f)
     data['version'] = nv
@@ -127,12 +125,6 @@ sed -i '' -E "s|[0-9]+ checks\\. [0-9]+ dimensions\\.|${check_count} checks. ${d
 sed -i '' -E "s|[0-9]+ checks, every one backed|${check_count} checks, every one backed|g" "$README"
 echo "  README.md: badge + hero → ${check_count} checks / ${dim_count} dimensions"
 
-# npm/README.md — "N checks. M dimensions. Evidence-backed."
-if [ -f "$NPM_README" ]; then
-  sed -i '' -E "s|[0-9]+ checks\\. [0-9]+ dimensions\\.|${check_count} checks. ${dim_count} dimensions.|g" "$NPM_README"
-  echo "  npm/README.md: hero → ${check_count} checks / ${dim_count} dimensions"
-fi
-
 # docs/content/intro.md — GitBook source: "N checks across M dimensions"
 if [ -f "$INTRO" ]; then
   sed -i '' -E "s|[0-9]+ checks across [0-9]+ dimensions|${check_count} checks across ${dim_count} dimensions|g" "$INTRO"
@@ -154,10 +146,8 @@ echo "Updated:"
 echo "  $PLUGIN → $new"
 echo "  $MARKETPLACE → $new"
 echo "  $PACKAGE → $new"
-echo "  $NPM_PACKAGE → $new"
 echo "  $SECURITY → supported versions"
 echo "  $README → badge + ${check_count} checks / ${dim_count} dimensions"
-echo "  $NPM_README → ${check_count} checks / ${dim_count} dimensions"
 echo "  $INTRO → ${check_count} checks / ${dim_count} dimensions"
 echo "  $ROOT/release-metadata.json → regenerated"
 echo "  docs/content/ → synced from root"
