@@ -457,5 +457,104 @@ runTest('backup_dir is always present in output even with no files modified', ()
   }
 });
 
+// --- New check fixes ---
+
+runTest('W11 auto fix creates .github/workflows/test-required.yml', () => {
+  const projectDir = makeTempProject({
+    'CLAUDE.md': '# Project',
+  });
+
+  try {
+    const plan = [
+      { id: 1, check_id: 'W11', fix_type: 'auto', project: 'test', score: 0 },
+    ];
+    const output = runFixer(plan, projectDir, [1]);
+
+    assert.equal(output.executed[0].status, 'fixed');
+    const workflowPath = path.join(projectDir, '.github', 'workflows', 'test-required.yml');
+    assert.ok(fs.existsSync(workflowPath), 'test-required.yml should be created');
+
+    const content = fs.readFileSync(workflowPath, 'utf8');
+    assert.match(content, /exit 1/, 'created workflow should be blocking');
+  } finally {
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+runTest('W11 auto fix skips if test-required.yml already exists', () => {
+  const existingContent = 'name: existing\n';
+  const projectDir = makeTempProject({
+    [path.join('.github', 'workflows', 'test-required.yml')]: existingContent,
+  });
+
+  try {
+    const plan = [
+      { id: 1, check_id: 'W11', fix_type: 'auto', project: 'test', score: 0 },
+    ];
+    const output = runFixer(plan, projectDir, [1]);
+
+    assert.equal(output.executed[0].status, 'failed');
+    assert.match(output.executed[0].detail, /already exists/i);
+
+    const workflowPath = path.join(projectDir, '.github', 'workflows', 'test-required.yml');
+    const content = fs.readFileSync(workflowPath, 'utf8');
+    assert.equal(content, existingContent, 'existing workflow should not be modified');
+  } finally {
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+runTest('H8 assisted fix creates hooks/_shared.sh when hooks directory exists', () => {
+  const projectDir = makeTempProject({
+    [path.join('hooks', 'pre-commit')]: '#!/usr/bin/env bash\necho "blocked"\n',
+  });
+
+  try {
+    const plan = [
+      { id: 1, check_id: 'H8', fix_type: 'assisted', project: 'test', score: 0 },
+    ];
+    const output = runFixer(plan, projectDir, [1]);
+
+    assert.equal(output.executed[0].status, 'fixed');
+    const sharedPath = path.join(projectDir, 'hooks', '_shared.sh');
+    assert.ok(fs.existsSync(sharedPath), 'hooks/_shared.sh should be created');
+
+    const content = fs.readFileSync(sharedPath, 'utf8');
+    assert.match(content, /fail_with_help/, 'shared hook helper should define fail_with_help');
+  } finally {
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+runTest('--checks W11 resolves the matching plan item', () => {
+  const projectDir = makeTempProject({
+    'CLAUDE.md': '# Project',
+  });
+
+  try {
+    const plan = [
+      { id: 7, check_id: 'W11', fix_type: 'auto', project: 'test', score: 0 },
+    ];
+    const result = spawnSync(process.execPath, [
+      fixerPath,
+      '--project-dir', projectDir,
+      '--checks', 'W11',
+    ], {
+      encoding: 'utf8',
+      input: JSON.stringify({ items: plan }),
+    });
+
+    assert.equal(result.status, 0, result.stderr || 'fixer should exit successfully');
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.executed.length, 1);
+    assert.equal(output.executed[0].id, 7);
+    assert.equal(output.executed[0].check_id, 'W11');
+    assert.equal(output.executed[0].status, 'fixed');
+    assert.ok(fs.existsSync(path.join(projectDir, '.github', 'workflows', 'test-required.yml')), 'W11 fix should run');
+  } finally {
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
 process.stdout.write(`${passed}/${total} tests passed\n`);
 process.exit(passed === total ? 0 : 1);

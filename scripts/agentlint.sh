@@ -5,6 +5,7 @@
 #   agentlint setup --lang <ts|python|node> [options] <project-path>
 #   agentlint check [--project-dir PATH]
 #   agentlint fix   [--project-dir PATH]
+#   agentlint fix <CHECK_ID> [--project-dir PATH]
 #   agentlint help
 
 set -euo pipefail
@@ -24,10 +25,48 @@ case "${1:-}" in
     ;;
   fix)
     shift
-    exec bash "$SCRIPT_DIR/../src/scanner.sh" "$@" \
-      | node "$SCRIPT_DIR/../src/scorer.js" \
-      | node "$SCRIPT_DIR/../src/plan-generator.js" \
-      | node "$SCRIPT_DIR/../src/fixer.js"
+    # Separate check IDs (e.g. W11, S1) from path flags (e.g. --project-dir)
+    check_ids=""
+    path_args=()
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --project-dir|--project-dir=*)
+          path_args+=("$1")
+          if [[ "$1" == "--project-dir" ]]; then
+            shift
+            path_args+=("$1")
+          fi
+          ;;
+        --*)
+          path_args+=("$1")
+          ;;
+        *)
+          # Looks like a check ID if it matches uppercase letter + alphanumeric
+          if [[ "$1" =~ ^[A-Z][A-Z0-9-]+$ ]]; then
+            if [[ -n "$check_ids" ]]; then
+              check_ids="${check_ids},$1"
+            else
+              check_ids="$1"
+            fi
+          else
+            path_args+=("$1")
+          fi
+          ;;
+      esac
+      shift
+    done
+
+    if [[ -n "$check_ids" ]]; then
+      exec bash "$SCRIPT_DIR/../src/scanner.sh" "${path_args[@]}" \
+        | node "$SCRIPT_DIR/../src/scorer.js" \
+        | node "$SCRIPT_DIR/../src/plan-generator.js" \
+        | node "$SCRIPT_DIR/../src/fixer.js" --checks "$check_ids" "${path_args[@]}"
+    else
+      exec bash "$SCRIPT_DIR/../src/scanner.sh" "${path_args[@]}" \
+        | node "$SCRIPT_DIR/../src/scorer.js" \
+        | node "$SCRIPT_DIR/../src/plan-generator.js" \
+        | node "$SCRIPT_DIR/../src/fixer.js" "${path_args[@]}"
+    fi
     ;;
   help|--help|-h|"")
     cat <<'EOF'
@@ -37,11 +76,12 @@ Commands:
   setup   Bootstrap a repo with AI-native CI/CD, hooks, and templates
           agentlint setup --lang <ts|python|node> [--visibility public|private] <path>
 
-  check   Diagnose your repo's AI-friendliness (49 checks, 8 dimensions)
+  check   Diagnose your repo's AI-friendliness (58 checks, 8 dimensions)
           agentlint check [--project-dir <path>]
 
   fix     Auto-fix issues found by check
           agentlint fix [--project-dir <path>]
+          agentlint fix <CHECK_ID>  Fix a specific check directly (e.g. agentlint fix W11)
 
   help    Show this help
 

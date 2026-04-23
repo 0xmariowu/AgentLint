@@ -1167,6 +1167,25 @@ EOF
     emit_result "$project_name" "C5" "null" "null" "1" "Skipped: CLAUDE.local.md is Claude Code specific"
   fi
 
+  # C6 — HANDOFF.md contains verify conditions (not just status)
+  local handoff_path="${project_dir}/HANDOFF.md"
+  if [ -f "$handoff_path" ] && ! [ -L "$handoff_path" ]; then
+    local handoff_content
+    handoff_content="$(cat "$handoff_path" 2>/dev/null)" || handoff_content=""
+    # Count lines with verify conditions: score/percentage+emoji, READY, PASS, verify:, assert
+    local verify_count=0
+    verify_count="$(printf '%s' "$handoff_content" | grep -cE '(READY|PASS|verified|assert|verify:|[0-9]+/[0-9]+[[:space:]]*(✅|🟢)|[0-9]+\.[0-9]+/[0-9]+)' 2>/dev/null || echo 0)"
+    if [ "$verify_count" -ge 2 ]; then
+      emit_result "$project_name" "C6" "$verify_count" "2" "1" "${verify_count} verify condition(s) found in HANDOFF.md — next session can confirm readiness without re-running all checks"
+    elif [ "$verify_count" -eq 1 ]; then
+      emit_result "$project_name" "C6" "1" "2" "0.5" "Only 1 verify condition in HANDOFF.md — add score/threshold evidence so next session can confirm readiness"
+    else
+      emit_result "$project_name" "C6" "0" "2" "0" "HANDOFF.md exists but contains no verify conditions (only status text) — next session cannot confirm readiness without re-running all checks"
+    fi
+  else
+    emit_result "$project_name" "C6" "null" "null" "0" "No HANDOFF.md — continuity check skipped (C2 also flags this)"
+  fi
+
   # I7 — Entry file size within 40,000 character limit
   if [ -n "$entry_abs" ]; then
     local char_count=0
@@ -1315,6 +1334,109 @@ EOF
     fi
   else
     emit_result "$project_name" "W8" "null" "null" "1" "No package.json (not a JS/Node project — skip)"
+  fi
+
+  # W9 — Release workflow validates version consistency
+  local wf_dir="${project_dir}/.github/workflows"
+  local w9_score="1"
+  local w9_detail="No release workflow found (skip)"
+  if [ -d "$wf_dir" ] && ! [ -L "$wf_dir" ]; then
+    local release_wf=""
+    release_wf="$(find "$wf_dir" -maxdepth 1 -type f \( -name 'release*.yml' -o -name 'release*.yaml' -o -name 'publish*.yml' -o -name 'publish*.yaml' \) 2>/dev/null | head -1)"
+    if [ -n "$release_wf" ]; then
+      local wf_content
+      wf_content="$(cat "$release_wf" 2>/dev/null)" || wf_content=""
+      local has_tag_extract=false
+      local has_version_compare=false
+      if printf '%s' "$wf_content" | grep -qE '(ref_name|GITHUB_REF|github\.ref|TAG=|tag_name)'; then
+        has_tag_extract=true
+      fi
+      if printf '%s' "$wf_content" | grep -qE '(pyproject\.toml|package\.json|version\.py|Cargo\.toml|build\.gradle)'; then
+        has_version_compare=true
+      fi
+      if [ "$has_tag_extract" = true ] && [ "$has_version_compare" = true ]; then
+        w9_score="1"
+        w9_detail="Release workflow validates tag against source version file"
+      elif [ "$has_tag_extract" = true ]; then
+        w9_score="0.5"
+        w9_detail="Release workflow checks tag format only — does not compare against source version file"
+      else
+        w9_score="0"
+        w9_detail="Release workflow has no tag extraction or version validation — silent version drift possible"
+      fi
+    fi
+  fi
+  emit_result "$project_name" "W9" "$w9_score" "null" "$w9_score" "$w9_detail"
+
+  # W10 — Test cost tiers defined (pytest markers, Python projects only)
+  local pyproject="${project_dir}/pyproject.toml"
+  local pytest_ini="${project_dir}/pytest.ini"
+  local setup_cfg="${project_dir}/setup.cfg"
+  if [ -f "$pyproject" ] || [ -f "$pytest_ini" ] || [ -f "$setup_cfg" ]; then
+    # Python project — count pytest markers
+    local marker_count=0
+    local marker_source=""
+    if [ -f "$pyproject" ]; then
+      marker_source="$pyproject"
+    elif [ -f "$pytest_ini" ]; then
+      marker_source="$pytest_ini"
+    else
+      marker_source="$setup_cfg"
+    fi
+    marker_count="$(grep -c '^\s*[a-zA-Z_][a-zA-Z0-9_]*\s*:' "$marker_source" 2>/dev/null || echo 0)"
+    # More targeted: count markers under [tool.pytest.ini_options].markers or [pytest].markers
+    if [ -f "$pyproject" ]; then
+      # Extract markers block from pyproject.toml
+      local in_markers=false
+      local counted=0
+      while IFS= read -r mline; do
+        if printf '%s' "$mline" | grep -qE '^\s*markers\s*='; then
+          in_markers=true
+          continue
+        fi
+        if [ "$in_markers" = true ]; then
+          if printf '%s' "$mline" | grep -qE '^\s*\['; then
+            break
+          fi
+          if printf '%s' "$mline" | grep -qE '^\s*"[a-zA-Z]|^\s*'"'"'[a-zA-Z]'; then
+            counted=$((counted + 1))
+          fi
+        fi
+      done < "$pyproject"
+      if [ "$counted" -gt 0 ]; then
+        marker_count="$counted"
+      fi
+    fi
+    if [ "$marker_count" -ge 3 ]; then
+      emit_result "$project_name" "W10" "$marker_count" "3" "1" "${marker_count} pytest marker(s) defined — test cost tiers allow fast local runs"
+    elif [ "$marker_count" -gt 0 ]; then
+      emit_result "$project_name" "W10" "$marker_count" "3" "0.5" "Only ${marker_count} pytest marker(s) — add unit/smoke/live tiers so AI agents can run fast tests locally"
+    else
+      emit_result "$project_name" "W10" "0" "3" "0" "No pytest markers defined — AI agents cannot distinguish fast unit tests from slow network tests"
+    fi
+  else
+    emit_result "$project_name" "W10" "null" "null" "1" "No Python project files found (skip — W10 is Python-only)"
+  fi
+
+  # W11 — feat/fix commits require paired test commits (test-required gate)
+  local test_required_wf="${project_dir}/.github/workflows/test-required.yml"
+  local test_required_wf_yaml="${project_dir}/.github/workflows/test-required.yaml"
+  local w11_found=""
+  if [ -f "$test_required_wf" ] && ! [ -L "$test_required_wf" ]; then
+    w11_found="$test_required_wf"
+  elif [ -f "$test_required_wf_yaml" ] && ! [ -L "$test_required_wf_yaml" ]; then
+    w11_found="$test_required_wf_yaml"
+  fi
+  if [ -n "$w11_found" ]; then
+    local w11_content
+    w11_content="$(cat "$w11_found" 2>/dev/null)" || w11_content=""
+    if printf '%s' "$w11_content" | grep -qE 'exit[[:space:]]+1'; then
+      emit_result "$project_name" "W11" "true" "null" "1" "test-required.yml exists and is blocking (exit 1)"
+    else
+      emit_result "$project_name" "W11" "true" "null" "0.5" "test-required.yml exists but may be warn-only (no exit 1 found)"
+    fi
+  else
+    emit_result "$project_name" "W11" "false" "null" "0" "No test-required.yml — feat/fix commits are not gated on paired test commits"
   fi
 
   # S1 — .env in .gitignore
@@ -1732,6 +1854,43 @@ H7WF
   else
     emit_result "$project_name" "H7" "$h7_warn_only" "null" "0" "${h7_warn_only}/${h7_gate_total} gate workflow(s) are warn-only (always exit 0) — they never block merge"
   fi
+
+  # H8 — Hook errors use structured format (what/rule/fix)
+  local h8_score="1"
+  local h8_detail="No tracked hook files found (skip)"
+  local h8_hooks_found=0
+  local h8_structured=0
+  # Only scan tracked files to avoid false positives from untracked artifacts
+  local tracked_hooks
+  tracked_hooks="$(git -C "$project_dir" ls-files 'hooks/' '.husky/' 2>/dev/null | grep -vE '(\.md|\.json|\.lock)$' || true)"
+  if [ -n "$tracked_hooks" ]; then
+    while IFS= read -r hook_rel; do
+      [ -z "$hook_rel" ] && continue
+      local hook_abs="${project_dir}/${hook_rel}"
+      if [ -f "$hook_abs" ] && ! [ -L "$hook_abs" ]; then
+        h8_hooks_found=$((h8_hooks_found + 1))
+        local hook_content
+        hook_content="$(cat "$hook_abs" 2>/dev/null)" || hook_content=""
+        # Check for structured error format: both Rule: and Fix: patterns present
+        if printf '%s' "$hook_content" | grep -qE 'Rule:' && printf '%s' "$hook_content" | grep -qE 'Fix:'; then
+          h8_structured=$((h8_structured + 1))
+        fi
+      fi
+    done <<H8HOOKS
+$tracked_hooks
+H8HOOKS
+    if [ "$h8_hooks_found" -eq 0 ]; then
+      h8_score="1"
+      h8_detail="No hook script files found in hooks/ or .husky/ (skip)"
+    elif [ "$h8_structured" -ge 1 ]; then
+      h8_score="1"
+      h8_detail="${h8_structured}/${h8_hooks_found} hook file(s) use structured error format (Rule:/Fix: pattern)"
+    else
+      h8_score="0"
+      h8_detail="${h8_hooks_found} hook file(s) found but none use structured error format — unstructured errors require reading source to fix"
+    fi
+  fi
+  emit_result "$project_name" "H8" "$h8_structured" "null" "$h8_score" "$h8_detail"
 
   # F8 — Rule file frontmatter uses globs not paths
   local rules_dir="${project_dir}/.claude/rules"

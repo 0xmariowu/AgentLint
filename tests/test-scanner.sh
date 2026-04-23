@@ -1969,6 +1969,220 @@ test_s9_personal_email() {
 run_test "S9: clean git history (noreply only) → 1" test_s9_clean_history
 run_test "S9: personal email in git history → 0" test_s9_personal_email
 
+# ── W9: release workflow validates version consistency ────────────────────
+
+test_w9_release_tag_version_compare() {
+  local t_dir out score
+  t_dir="$(mktemp -d "${TEMP_ROOT}/w9-version.XXXXXX")"
+  git -C "$t_dir" init --quiet 2>/dev/null || true
+  git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit --allow-empty -m "init" --quiet 2>/dev/null || true
+  mkdir -p "$t_dir/.github/workflows"
+  cat > "$t_dir/.github/workflows/release.yml" <<'YAML'
+name: release
+on: push
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          TAG="${{ github.ref_name }}"
+          PY_VERSION=$(python3 -c "import tomllib; d=tomllib.load(open('pyproject.toml','rb')); print(d['project']['version'])")
+          if [ "$TAG" != "v$PY_VERSION" ]; then exit 1; fi
+YAML
+  git -C "$t_dir" add -A 2>/dev/null && git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit -m "add release" --quiet 2>/dev/null || true
+  out="${TEMP_ROOT}/w9-version.jsonl"
+  bash "${SCANNER}" --project-dir "$t_dir" > "$out" 2>/dev/null
+  score="$(extract_check_score "$out" "W9")" || { TEST_ERROR="W9 not found"; rm -rf "$t_dir"; return 1; }
+  rm -rf "$t_dir"
+  if [ "$score" != "1" ]; then TEST_ERROR="W9 should be 1 when release.yml compares tag to version (got ${score})"; return 1; fi
+}
+
+test_w9_release_tag_only() {
+  local t_dir out score
+  t_dir="$(mktemp -d "${TEMP_ROOT}/w9-tag.XXXXXX")"
+  git -C "$t_dir" init --quiet 2>/dev/null || true
+  git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit --allow-empty -m "init" --quiet 2>/dev/null || true
+  mkdir -p "$t_dir/.github/workflows"
+  cat > "$t_dir/.github/workflows/release.yml" <<'YAML'
+name: release
+on: push
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "${{ github.ref_name }}"
+YAML
+  git -C "$t_dir" add -A 2>/dev/null && git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit -m "add release" --quiet 2>/dev/null || true
+  out="${TEMP_ROOT}/w9-tag.jsonl"
+  bash "${SCANNER}" --project-dir "$t_dir" > "$out" 2>/dev/null
+  score="$(extract_check_score "$out" "W9")" || { TEST_ERROR="W9 not found"; rm -rf "$t_dir"; return 1; }
+  rm -rf "$t_dir"
+  if [ "$score" != "0.5" ]; then TEST_ERROR="W9 should be 0.5 when release.yml has tag only (got ${score})"; return 1; fi
+}
+
+run_test "W9: release.yml with tag+version compare → 1" test_w9_release_tag_version_compare
+run_test "W9: release.yml with tag only → 0.5" test_w9_release_tag_only
+
+# ── W10: pytest markers (Python only) ──────────────────────────────────────
+
+test_w10_pyproject_three_markers() {
+  local t_dir out score
+  t_dir="$(mktemp -d "${TEMP_ROOT}/w10-markers.XXXXXX")"
+  git -C "$t_dir" init --quiet 2>/dev/null || true
+  git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit --allow-empty -m "init" --quiet 2>/dev/null || true
+  cat > "$t_dir/pyproject.toml" <<'TOML'
+[tool.pytest.ini_options]
+markers = [
+    "unit: fast unit tests",
+    "smoke: subprocess tests",
+    "live: live network tests",
+]
+TOML
+  git -C "$t_dir" add -A 2>/dev/null && git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit -m "add pyproject" --quiet 2>/dev/null || true
+  out="${TEMP_ROOT}/w10-markers.jsonl"
+  bash "${SCANNER}" --project-dir "$t_dir" > "$out" 2>/dev/null
+  score="$(extract_check_score "$out" "W10")" || { TEST_ERROR="W10 not found"; rm -rf "$t_dir"; return 1; }
+  rm -rf "$t_dir"
+  if [ "$score" != "1" ]; then TEST_ERROR="W10 should be 1 when pyproject has 3 markers (got ${score})"; return 1; fi
+}
+
+test_w10_no_python_project_skips() {
+  local t_dir out score
+  t_dir="$(mktemp -d "${TEMP_ROOT}/w10-skip.XXXXXX")"
+  git -C "$t_dir" init --quiet 2>/dev/null || true
+  git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit --allow-empty -m "init" --quiet 2>/dev/null || true
+  out="${TEMP_ROOT}/w10-skip.jsonl"
+  bash "${SCANNER}" --project-dir "$t_dir" > "$out" 2>/dev/null
+  score="$(extract_check_score "$out" "W10")" || { TEST_ERROR="W10 not found"; rm -rf "$t_dir"; return 1; }
+  rm -rf "$t_dir"
+  if [ "$score" != "1" ]; then TEST_ERROR="W10 should be 1 when no Python project files exist (got ${score})"; return 1; fi
+}
+
+run_test "W10: pyproject with 3 markers → 1" test_w10_pyproject_three_markers
+run_test "W10: no Python project → skip (1)" test_w10_no_python_project_skips
+
+# ── W11: test-required.yml present and blocking ────────────────────────────
+
+test_w11_test_required_blocking() {
+  local t_dir out score
+  t_dir="$(mktemp -d "${TEMP_ROOT}/w11-blocking.XXXXXX")"
+  git -C "$t_dir" init --quiet 2>/dev/null || true
+  git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit --allow-empty -m "init" --quiet 2>/dev/null || true
+  mkdir -p "$t_dir/.github/workflows"
+  cat > "$t_dir/.github/workflows/test-required.yml" <<'YAML'
+name: test-required
+on: pull_request
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          if [ "$behavior_change" -eq 1 ] && [ "$has_test" -eq 0 ]; then exit 1; fi
+YAML
+  git -C "$t_dir" add -A 2>/dev/null && git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit -m "add gate" --quiet 2>/dev/null || true
+  out="${TEMP_ROOT}/w11-blocking.jsonl"
+  bash "${SCANNER}" --project-dir "$t_dir" > "$out" 2>/dev/null
+  score="$(extract_check_score "$out" "W11")" || { TEST_ERROR="W11 not found"; rm -rf "$t_dir"; return 1; }
+  rm -rf "$t_dir"
+  if [ "$score" != "1" ]; then TEST_ERROR="W11 should be 1 when test-required.yml blocks with exit 1 (got ${score})"; return 1; fi
+}
+
+test_w11_no_test_required() {
+  local t_dir out score
+  t_dir="$(mktemp -d "${TEMP_ROOT}/w11-missing.XXXXXX")"
+  git -C "$t_dir" init --quiet 2>/dev/null || true
+  git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit --allow-empty -m "init" --quiet 2>/dev/null || true
+  out="${TEMP_ROOT}/w11-missing.jsonl"
+  bash "${SCANNER}" --project-dir "$t_dir" > "$out" 2>/dev/null
+  score="$(extract_check_score "$out" "W11")" || { TEST_ERROR="W11 not found"; rm -rf "$t_dir"; return 1; }
+  rm -rf "$t_dir"
+  if [ "$score" != "0" ]; then TEST_ERROR="W11 should be 0 when test-required.yml is missing (got ${score})"; return 1; fi
+}
+
+run_test "W11: test-required.yml blocking → 1" test_w11_test_required_blocking
+run_test "W11: no test-required.yml → 0" test_w11_no_test_required
+
+# ── H8: hook errors use structured format ──────────────────────────────────
+
+test_h8_hook_structured() {
+  local t_dir out score
+  t_dir="$(mktemp -d "${TEMP_ROOT}/h8-structured.XXXXXX")"
+  git -C "$t_dir" init --quiet 2>/dev/null || true
+  git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit --allow-empty -m "init" --quiet 2>/dev/null || true
+  mkdir -p "$t_dir/hooks"
+  cat > "$t_dir/hooks/pre-commit" <<'SH'
+#!/usr/bin/env bash
+echo "error: direct commit blocked" >&2
+echo "  Rule: all commits must go through scripts/committer" >&2
+echo "  Fix:  run scripts/committer 'your message'" >&2
+exit 1
+SH
+  git -C "$t_dir" add -A 2>/dev/null && git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit -m "add hook" --quiet 2>/dev/null || true
+  out="${TEMP_ROOT}/h8-structured.jsonl"
+  bash "${SCANNER}" --project-dir "$t_dir" > "$out" 2>/dev/null
+  score="$(extract_check_score "$out" "H8")" || { TEST_ERROR="H8 not found"; rm -rf "$t_dir"; return 1; }
+  rm -rf "$t_dir"
+  if [ "$score" != "1" ]; then TEST_ERROR="H8 should be 1 when hook has Rule:/Fix: (got ${score})"; return 1; fi
+}
+
+test_h8_hook_unstructured() {
+  local t_dir out score
+  t_dir="$(mktemp -d "${TEMP_ROOT}/h8-unstructured.XXXXXX")"
+  git -C "$t_dir" init --quiet 2>/dev/null || true
+  git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit --allow-empty -m "init" --quiet 2>/dev/null || true
+  mkdir -p "$t_dir/hooks"
+  cat > "$t_dir/hooks/pre-commit" <<'SH'
+#!/usr/bin/env bash
+echo "error: something went wrong" >&2
+exit 1
+SH
+  git -C "$t_dir" add -A 2>/dev/null && git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit -m "add hook" --quiet 2>/dev/null || true
+  out="${TEMP_ROOT}/h8-unstructured.jsonl"
+  bash "${SCANNER}" --project-dir "$t_dir" > "$out" 2>/dev/null
+  score="$(extract_check_score "$out" "H8")" || { TEST_ERROR="H8 not found"; rm -rf "$t_dir"; return 1; }
+  rm -rf "$t_dir"
+  if [ "$score" != "0" ]; then TEST_ERROR="H8 should be 0 when hook lacks Rule:/Fix: (got ${score})"; return 1; fi
+}
+
+run_test "H8: hook with Rule:/Fix: → 1" test_h8_hook_structured
+run_test "H8: hook without structured format → 0" test_h8_hook_unstructured
+
+# ── C6: HANDOFF contains verify conditions ─────────────────────────────────
+
+test_c6_handoff_verify_conditions() {
+  local t_dir out score
+  t_dir="$(mktemp -d "${TEMP_ROOT}/c6-verify.XXXXXX")"
+  git -C "$t_dir" init --quiet 2>/dev/null || true
+  git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit --allow-empty -m "init" --quiet 2>/dev/null || true
+  cat > "$t_dir/HANDOFF.md" <<'MD'
+# Handoff
+Status: ready
+E2B Phase 1: 96.3/100 🟢 READY
+E2B Phase 2: 33/33 ✅
+MD
+  git -C "$t_dir" add -A 2>/dev/null && git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit -m "add handoff" --quiet 2>/dev/null || true
+  out="${TEMP_ROOT}/c6-verify.jsonl"
+  bash "${SCANNER}" --project-dir "$t_dir" > "$out" 2>/dev/null
+  score="$(extract_check_score "$out" "C6")" || { TEST_ERROR="C6 not found"; rm -rf "$t_dir"; return 1; }
+  rm -rf "$t_dir"
+  if [ "$score" != "1" ]; then TEST_ERROR="C6 should be 1 when HANDOFF.md has 2+ verify conditions (got ${score})"; return 1; fi
+}
+
+test_c6_no_handoff() {
+  local t_dir out score
+  t_dir="$(mktemp -d "${TEMP_ROOT}/c6-missing.XXXXXX")"
+  git -C "$t_dir" init --quiet 2>/dev/null || true
+  git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit --allow-empty -m "init" --quiet 2>/dev/null || true
+  out="${TEMP_ROOT}/c6-missing.jsonl"
+  bash "${SCANNER}" --project-dir "$t_dir" > "$out" 2>/dev/null
+  score="$(extract_check_score "$out" "C6")" || { TEST_ERROR="C6 not found"; rm -rf "$t_dir"; return 1; }
+  rm -rf "$t_dir"
+  if [ "$score" != "0" ]; then TEST_ERROR="C6 should be 0 when HANDOFF.md is missing (got ${score})"; return 1; fi
+}
+
+run_test "C6: HANDOFF with verify conditions → 1" test_c6_handoff_verify_conditions
+run_test "C6: no HANDOFF.md → 0" test_c6_no_handoff
+
 run_test "emit_result: unknown check_id fails loudly" test_emit_result_unknown_check_id_fails_loudly
 run_test "emit_result: jq failure fails loudly" test_emit_result_jq_failure_fails_loudly
 run_test "emit_result: empty jq output fails loudly" test_emit_result_empty_output_fails_loudly

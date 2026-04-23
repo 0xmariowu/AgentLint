@@ -26,10 +26,14 @@ const CHECK_FIX_ACTIONS = {
   W2: 'Add CI workflows',
   W3: 'Add test files',
   W4: 'Add linter/formatter configuration',
+  W9: 'Add version comparison to release workflow (compare tag to pyproject.toml/package.json)',
+  W10: 'Add pytest marker tiers to pyproject.toml: unit, smoke, live (at minimum)',
+  W11: 'Generate .github/workflows/test-required.yml to gate feat/fix commits on paired test commits',
   C1: 'Review entry file for outdated rules',
   C2: 'Generate HANDOFF.md',
   C3: 'Create CHANGELOG.md',
   C4: 'Create plans directory',
+  C6: 'Add verify conditions to HANDOFF.md: scores, thresholds, or READY/PASS markers',
   S1: 'Add .env to .gitignore',
   S2: 'Pin GitHub Actions to SHA commits',
   S3: 'Add gitleaks pre-commit hook or CI workflow',
@@ -42,11 +46,12 @@ const CHECK_FIX_ACTIONS = {
   H4: 'Replace dangerous auto-approve rules with scoped permissions (e.g., Bash(git status:*) instead of Bash(*))',
   H5: 'Extend .env deny rules to cover variants: Read(./.env.*) or Read(./.env*)',
   H6: 'Review hook scripts making network calls — ensure external requests are intentional, not data exfiltration',
+  H8: 'Add hooks/_shared.sh with fail_with_help() for structured hook errors (what/rule/fix/see)',
 };
 
-const ASSISTED_FIXES = new Set(['F1', 'F5', 'C2']);
-const AUTO_FIXES = new Set(['I5']);
-const GUIDED_FIXES = new Set(['I3', 'W3', 'C1', 'H3', 'H6']);
+const ASSISTED_FIXES = new Set(['F1', 'F5', 'C2', 'W9', 'W10', 'H8']);
+const AUTO_FIXES = new Set(['I5', 'W11']);
+const GUIDED_FIXES = new Set(['I3', 'W3', 'C1', 'H3', 'H6', 'C6']);
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -336,6 +341,7 @@ function sortItems(items) {
       description: item.description,
       evidence: item.evidence,
       fix_action: item.fix_action,
+      fix_command: `agentlint fix ${item.check_id}`,
       measured_value: item.measured_value,
       reference_value: item.reference_value,
       score: item.score,
