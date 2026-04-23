@@ -38,6 +38,8 @@ npm install -g agentlint-ai
 
 就这样。AgentLint 会扫描你的 repo，从 8 个维度打分，告诉你哪里有问题，能自动修的直接修。
 
+> **想看安装画面？** npm 9+ 默认静默 postinstall 输出。改用 `npx agentlint-ai init` ——会打印完整的安装界面并交互式配置 Claude Code 插件。
+
 **没有 Claude Code？** CLI 独立可用：
 
 ```bash

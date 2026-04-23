@@ -38,6 +38,8 @@ Then start a new Claude Code session and run:
 
 That's it. AgentLint scans your repo, scores it across 8 dimensions, shows exactly what's wrong, and fixes what it can.
 
+> **Want to see the install UI?** npm 9+ silences postinstall output by default. Run `npx agentlint-ai init` instead — it prints the full onboarding screen and sets up the Claude Code plugin interactively.
+
 **No Claude Code?** The CLI works standalone:
 
 ```bash
