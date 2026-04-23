@@ -81,7 +81,7 @@ def build_agentlint_tarball() -> bytes:
         return data
 
 
-def run_one(spec: dict, tarball_bytes: bytes, run_dir: Path, dry_run: bool = False) -> dict:
+def run_one(spec: dict, tarball_bytes: bytes, run_dir: Path, dry_run: bool = False, from_npm: str = "") -> dict:
     """Run a single scenario in an E2B sandbox. Returns result dict."""
     scenario_id = spec["id"]
     layer = spec["layer"]
@@ -121,8 +121,9 @@ def run_one(spec: dict, tarball_bytes: bytes, run_dir: Path, dry_run: bool = Fal
     try:
         # E2B SDK v2: use Sandbox.create() — picks up E2B_API_KEY from env
         with Sandbox.create(timeout=timeout + 60) as sbx:
-            # Upload agentlint source
-            sbx.files.write("/tmp/agentlint.tar.gz", tarball_bytes)
+            # Upload agentlint source (skip in npm-mode — install from registry instead)
+            if not from_npm:
+                sbx.files.write("/tmp/agentlint.tar.gz", tarball_bytes)
             
             # Set env vars from spec
             envs: dict[str, str] = {
@@ -131,6 +132,8 @@ def run_one(spec: dict, tarball_bytes: bytes, run_dir: Path, dry_run: bool = Fal
                 "SCENARIO_TYPE": spec.get("scenario_type", layer),
                 "OUTPUT_PATH": "/tmp/scenario-output",
             }
+            if from_npm:
+                envs["FROM_NPM"] = from_npm
             if "repo_name" in spec:
                 envs["REPO_NAME"] = spec["repo_name"]
             if "expected_checks" in spec:
@@ -268,13 +271,16 @@ def main() -> None:
                         help="Skip sandbox creation, just list scenarios")
     parser.add_argument("--e2b-api-key", default=None,
                         help="E2B API key (default: $E2B_API_KEY)")
+    parser.add_argument("--from-npm", default=None, metavar="PACKAGE",
+                        help="Install from npm registry instead of local tarball (e.g. agentlint-ai)")
     args = parser.parse_args()
     
     if args.e2b_api_key:
         os.environ["E2B_API_KEY"] = args.e2b_api_key
     
     layers = LAYER_ORDER if args.layer == "all" else [args.layer]
-    run_id = args.run_id or f"{datetime.utcnow().strftime('%Y-%m-%d')}-{args.layer}"
+    npm_suffix = f"-npm-{args.from_npm.replace('/', '-')}" if args.from_npm else ""
+    run_id = args.run_id or f"{datetime.utcnow().strftime('%Y-%m-%d')}-{args.layer}{npm_suffix}"
     run_dir = RESULTS_DIR / run_id
     
     # Collect all scenarios
@@ -301,18 +307,23 @@ def main() -> None:
             print(f"  {s['id']} ({s['layer']})")
         sys.exit(0)
     
-    # Build tarball once
-    print("[orchestrator] Building agentlint tarball...")
-    tarball_bytes = build_agentlint_tarball()
-    print(f"[orchestrator] Tarball: {len(tarball_bytes):,} bytes")
-    
+    # Build tarball (skip in npm-mode)
+    from_npm = args.from_npm or ""
+    if from_npm:
+        print(f"[orchestrator] npm-mode: will install {from_npm!r} from registry in each sandbox")
+        tarball_bytes = b""
+    else:
+        print("[orchestrator] Building agentlint tarball...")
+        tarball_bytes = build_agentlint_tarball()
+        print(f"[orchestrator] Tarball: {len(tarball_bytes):,} bytes")
+
     # Run in parallel
     results: list[dict] = []
     t_start = time.time()
-    
+
     with ThreadPoolExecutor(max_workers=min(args.concurrency, len(all_scenarios))) as executor:
         futures = {
-            executor.submit(run_one, spec, tarball_bytes, run_dir, args.dry_run): spec
+            executor.submit(run_one, spec, tarball_bytes, run_dir, args.dry_run, from_npm): spec
             for spec in all_scenarios
         }
         for future in as_completed(futures):
