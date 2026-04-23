@@ -44,9 +44,9 @@ agentlint fix W11 --project-dir ~/Projects/my-repo # fix a specific check direct
 ## Install
 
 ```bash
-npm install -g agent-lint
+npm install -g agentlint-ai
 # or one-shot:
-npx agent-lint init
+npx agentlint-ai init
 ```
 
 Then start a new Claude Code session:
@@ -65,7 +65,7 @@ AgentLint's scanner is a bash script, so the host needs a POSIX shell:
 |----------|-------------|
 | macOS | Works out of the box (system bash). |
 | Linux | Works out of the box. `jq` and `git` must be on `PATH`. |
-| Windows | Requires **Git Bash** (from [Git for Windows](https://git-scm.com/download/win)) or **WSL** ([install guide](https://learn.microsoft.com/windows/wsl/install)). Run `npm install -g agent-lint` from inside the bash shell. A pure `cmd.exe` / PowerShell install will exit with a guidance message pointing to one of the two options above. |
+| Windows | Requires **Git Bash** (from [Git for Windows](https://git-scm.com/download/win)) or **WSL** ([install guide](https://learn.microsoft.com/windows/wsl/install)). Run `npm install -g agentlint-ai` from inside the bash shell. A pure `cmd.exe` / PowerShell install will exit with a guidance message pointing to one of the two options above. |
 
 Node.js 20+ is required on every platform.
 

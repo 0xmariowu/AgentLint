@@ -4,13 +4,17 @@
 
 ## v1.0.0 (2026-04-23)
 
-**Breaking: package renamed from `@0xmariowu/agent-lint` to `agent-lint`**
+**Breaking: package renamed from `@0xmariowu/agent-lint` to `agentlint-ai`**
+
+npm blocks the unscoped `agent-lint` name due to similarity with an existing unrelated
+package called `agentlint`, so we went with `agentlint-ai` — still short, unscoped, and
+signals the AI-native lens of the tool.
 
 Migration:
 ```bash
 npm uninstall -g @0xmariowu/agent-lint  # remove old
-npm install -g agent-lint               # install new (unscoped)
-# or: npx agent-lint init
+npm install -g agentlint-ai             # install new (unscoped)
+# or: npx agentlint-ai init
 ```
 
 - Install is now `npm install -g agent-lint` (unscoped) or `npx agent-lint init` — no more @0xmariowu/ scope

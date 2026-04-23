@@ -23,3 +23,4 @@ tests/accuracy/conflicts.jsonl
 __pycache__/
 *.pyc
 state/
+tests/e2b/results/
