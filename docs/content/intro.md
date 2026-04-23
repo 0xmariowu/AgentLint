@@ -6,9 +6,24 @@
 
 ## Install
 
+{% tabs %}
+{% tab title="npx (recommended)" %}
 ```bash
 npx agentlint-ai
 ```
+{% endtab %}
+{% tab title="curl" %}
+```bash
+curl -fsSL https://raw.githubusercontent.com/0xmariowu/agent-lint/main/scripts/install-user.sh | bash
+```
+{% endtab %}
+{% tab title="npm" %}
+```bash
+npm install -g agentlint-ai
+agentlint-ai
+```
+{% endtab %}
+{% endtabs %}
 
 Then start a new Claude Code session:
 
