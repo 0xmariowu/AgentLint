@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v1.0.3 (2026-04-24)
+
+- feat: install screen tagline updated to "The linter for your agent harness"
+- feat: install command is now `npx agentlint-ai` — runs bin directly, bypasses npm 9+ postinstall stdout silencing
+- feat: `scripts/install-user.sh` — curl-installable script for users who prefer `curl -fsSL ... | bash`
+- docs: README, README_CN, docs.agentlint.app install section updated to `npx agentlint-ai` (primary) + curl (secondary)
+
 ## v1.0.2 (2026-04-23)
 
 - fix: SARIF report generation now works after `npm install -g agentlint-ai` — `release-metadata.json` was missing from the published package, causing the SARIF step to throw silently and produce no output file (HTML/JSONL/MD were unaffected)
