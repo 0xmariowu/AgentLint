@@ -179,3 +179,4 @@ Or update the Claude Code plugin directly:
 ```bash
 claude plugin update agent-lint@agent-lint
 ```
+
