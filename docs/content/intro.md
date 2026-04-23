@@ -10,12 +10,6 @@
 npx agentlint-ai
 ```
 
-Or with curl:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/0xmariowu/agent-lint/main/scripts/install-user.sh | bash
-```
-
 Then start a new Claude Code session:
 
 ```
@@ -173,10 +167,3 @@ Every check cites its source. Full citations in [`standards/evidence.json`](http
 ```bash
 npm install -g agentlint-ai@latest
 ```
-
-Or update the Claude Code plugin directly:
-
-```bash
-claude plugin update agent-lint@agent-lint
-```
-
