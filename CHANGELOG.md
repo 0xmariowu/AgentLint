@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.0.2 (2026-04-23)
+
+- fix: SARIF report generation now works after `npm install -g agentlint-ai` — `release-metadata.json` was missing from the published package, causing the SARIF step to throw silently and produce no output file (HTML/JSONL/MD were unaffected)
+- fix: `postinstall.js` usage strings updated to `agentlint-ai` (were still showing old `agent-lint` package name)
+- test: E2B test suite now supports `--from-npm agentlint-ai` to validate the published npm artifact end-to-end; all 20 scenarios pass
+
 ## v1.0.1 (2026-04-23)
 
 - fix: `npx agentlint-ai init` now works (previous v1.0.0 published but the `agentlint-ai` bin alias was missing, so npx couldn't resolve the executable)
@@ -21,7 +27,7 @@ npm install -g agentlint-ai             # install new (unscoped)
 # or: npx agentlint-ai init
 ```
 
-- Install is now `npm install -g agent-lint` (unscoped) or `npx agent-lint init` — no more @0xmariowu/ scope
+- Install is now `npm install -g agentlint-ai` (unscoped) or `npx agentlint-ai init` — no more @0xmariowu/ scope
 - Self-contained npm package: postinstall.js and install.sh are bundled, no more GitHub raw downloads during install
 - Deleted the separate /npm/ shim directory — single source of truth at root
 

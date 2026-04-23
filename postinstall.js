@@ -34,10 +34,10 @@ function box(lines) {
 }
 
 function main() {
-  // Support both `npx agent-lint` and `npx agent-lint init`.
+  // Support both `npx agentlint-ai` and `npx agentlint-ai init`.
   const args = process.argv.slice(2);
   if (args.length > 0 && args[0] !== "init") {
-    console.error("Usage: npx agent-lint [init]");
+    console.error("Usage: npx agentlint-ai [init]");
     process.exit(1);
   }
 
@@ -60,7 +60,7 @@ function main() {
       console.log("  AgentLint requires bash on Windows. Install one of:");
       console.log("    - Git for Windows: https://git-scm.com/download/win");
       console.log("    - WSL: https://learn.microsoft.com/windows/wsl/install");
-      console.log("  Then re-run: npm install -g agent-lint");
+      console.log("  Then re-run: npm install -g agentlint-ai");
       console.log();
       process.exit(1);
     }
