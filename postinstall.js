@@ -42,7 +42,7 @@ function main() {
   }
 
   console.log(LOGO);
-  console.log("\x1b[1mAgentLint v" + PKG_VERSION + "\x1b[0m — AI-native repo diagnostics");
+  console.log("\x1b[1mAgentLint v" + PKG_VERSION + "\x1b[0m — The linter for your agent harness");
   console.log("─".repeat(62));
   console.log("\x1b[36mPrivacy first: agentlint reads your repo locally. Nothing leaves your machine.\x1b[0m");
   console.log("─".repeat(62));
