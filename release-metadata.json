@@ -1,6 +1,6 @@
 {
-  "version": "0.9.0",
-  "check_count": 53,
+  "version": "0.9.1",
+  "check_count": 58,
   "dimensions": [
     {
       "name": "Findability",
@@ -44,9 +44,12 @@
         "W5",
         "W6",
         "W7",
-        "W8"
+        "W8",
+        "W9",
+        "W10",
+        "W11"
       ],
-      "count": 8
+      "count": 11
     },
     {
       "name": "Continuity",
@@ -56,9 +59,10 @@
         "C2",
         "C3",
         "C4",
-        "C5"
+        "C5",
+        "C6"
       ],
-      "count": 5
+      "count": 6
     },
     {
       "name": "Safety",
@@ -86,9 +90,10 @@
         "H4",
         "H5",
         "H6",
-        "H7"
+        "H7",
+        "H8"
       ],
-      "count": 7
+      "count": 8
     },
     {
       "name": "Deep",

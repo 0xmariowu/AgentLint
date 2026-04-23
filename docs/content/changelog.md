@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.9.1 (2026-04-23)
+
+- You can now run `agentlint fix W11` (or any check ID) to fix a specific check directly — no more hunting for plan item numbers
+- 5 new checks: W9 (release version validation), W10 (pytest marker tiers), W11 (feat→test commit gate), H8 (structured hook errors), C6 (HANDOFF verify conditions)
+- Templates added: `templates/ci/test-required.yml` (feat/fix commit gate) and `templates/hooks/_shared.sh` (structured error helper)
+- fix: README badge and release-metadata.json were stale at v0.9.0 (checks-49 vs 53); v0.9.1 corrects all counts to 58
+
 ## v0.9.0 (2026-04-23)
 
 ### New: `agentlint setup` — AI-native project bootstrap
