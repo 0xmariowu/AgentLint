@@ -7,7 +7,13 @@
 ## Install
 
 ```bash
-npm install -g agentlint-ai
+npx agentlint-ai
+```
+
+Or with curl:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/0xmariowu/agent-lint/main/scripts/install-user.sh | bash
 ```
 
 Then start a new Claude Code session:
@@ -68,7 +74,7 @@ The scanner is a bash script, so the host needs a POSIX shell:
 |----------|-------------|
 | macOS | Works out of the box (system bash). |
 | Linux | Works out of the box. `jq` and `git` must be on `PATH`. |
-| Windows | Requires **Git Bash** (from [Git for Windows](https://git-scm.com/download/win)) or **WSL** ([install guide](https://learn.microsoft.com/windows/wsl/install)). Run `npm install -g agentlint-ai` from inside the bash shell. Installing from `cmd.exe` or PowerShell will exit with a message pointing to one of those two options. |
+| Windows | Requires **Git Bash** (from [Git for Windows](https://git-scm.com/download/win)) or **WSL** ([install guide](https://learn.microsoft.com/windows/wsl/install)). Run `npx agentlint-ai` from inside the bash shell. Installing from `cmd.exe` or PowerShell will exit with a message pointing to one of those two options. |
 
 Node.js 20+ is required on every platform.
 
@@ -165,5 +171,11 @@ Every check cites its source. Full citations in [`standards/evidence.json`](http
 ## Update
 
 ```bash
-npm update -g agent-lint
+npm install -g agentlint-ai@latest
+```
+
+Or update the Claude Code plugin directly:
+
+```bash
+claude plugin update agent-lint@agent-lint
 ```
