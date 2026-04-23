@@ -12,7 +12,7 @@
 [![npm](https://img.shields.io/npm/v/agentlint-ai)](https://www.npmjs.com/package/agentlint-ai)
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-cc785c)](https://claude.com/download)
 
-<p><a href="#install">Install</a> · <a href="#what-you-get">Demo</a> · <a href="#the-harness-problem">Harness 101</a> · <a href="#what-it-checks">Checks</a> · <a href="#evidence">Evidence</a> · <a href="#faq">FAQ</a></p>
+<p><a href="#install">Install</a> · <a href="#what-you-get">Demo</a> · <a href="#the-harness-problem">Harness 101</a> · <a href="#what-it-checks">Checks</a> · <a href="#evidence">Evidence</a> · <a href="#faq">FAQ</a> · <a href="README_CN.md">中文</a></p>
 
 </div>
 
