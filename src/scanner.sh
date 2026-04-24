@@ -2,7 +2,15 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks so SCRIPT_DIR points at the real scripts/ directory even
+# when the binary is invoked through an npm global-install symlink — e.g.
+# `al-scan` at `/usr/local/bin/al-scan` → `.../node_modules/agentlint-ai/src/
+# scanner.sh`. Without this, SCRIPT_DIR ends up at the symlink location and
+# REPO_ROOT/standards/evidence.json is nowhere on disk.
+_SELF="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null \
+  || readlink "${BASH_SOURCE[0]}" 2>/dev/null \
+  || echo "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "${_SELF}")" && pwd)"
 REPO_ROOT="$(CDPATH='' cd -- "${SCRIPT_DIR}/.." && pwd)"
 EVIDENCE_FILE="${REPO_ROOT}/standards/evidence.json"
 THRESHOLDS_FILE="${REPO_ROOT}/standards/reference-thresholds.json"
@@ -2065,6 +2073,14 @@ discover_projects() {
 main() {
   local project_dir=""
   local projects_root="${PROJECTS_ROOT:-${HOME}/Projects}"
+  # Expand a leading tilde so PROJECTS_ROOT='~/Projects' (as a literal env
+  # string from /al's saved config) still points at $HOME. Shell would
+  # normally expand tilde only on word-level input, not in env-var strings,
+  # so callers can easily hand us a literal "~" that `find` cannot walk.
+  case "$projects_root" in
+    '~')     projects_root="$HOME" ;;
+    '~/'*)   projects_root="$HOME/${projects_root#'~/'}" ;;
+  esac
   local -a projects=()
   local arg=""
 
@@ -2131,6 +2147,16 @@ main() {
   done <<EOF
 $(discover_projects "$projects_root")
 EOF
+
+  # Bash 3.2 (macOS default) treats `"${projects[@]}"` on an empty array as
+  # `unbound variable` under `set -u`. Guard explicitly: no discovered repos
+  # means no work and a clear stderr hint, not a shell-level crash.
+  if [ "${#projects[@]}" -eq 0 ]; then
+    printf 'scanner: no git repositories discovered under %s\n' "$projects_root" >&2
+    printf 'scanner: set PROJECTS_ROOT to a directory that contains one or more git repos, ' >&2
+    printf 'or pass --project-dir for a single-repo scan\n' >&2
+    exit 1
+  fi
 
   for project_dir in "${projects[@]}"; do
     scan_project "$project_dir"
