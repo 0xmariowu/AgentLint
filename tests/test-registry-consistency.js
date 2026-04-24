@@ -402,5 +402,21 @@ runTest('deep-analyzer --format-result validates --check against D1/D2/D3', () =
     'deep-analyzer.js must not default missing --check to D1 (hides the bug)');
 });
 
+runTest('session-analyzer emits "ran, no issue" sentinels so scope flips on clean repos', () => {
+  // Previously session-analyzer only emitted records for actual findings.
+  // A clean repo (sessions scanned, nothing flagged) produced 0 records;
+  // scorer's `state.checks.length > 0` test then marked Session as
+  // `not_run`, and `score_scope` stayed `core` despite the user selecting
+  // Session. Sentinel records for SS1..SS4 with `score: 1` (no issues)
+  // flip the dimension to `run` with full score — matching intent.
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'session-analyzer.js'), 'utf8');
+  assert.match(src, /SS_CHECK_NAMES\s*=\s*\{[\s\S]{0,300}SS1[\s\S]{0,300}SS4/,
+    'session-analyzer.js must define SS_CHECK_NAMES covering SS1..SS4');
+  assert.match(src, /reportedCheckIds\s*=\s*new Set\(findings\.map/,
+    'session-analyzer.js must compute the set of check IDs that got findings');
+  assert.match(src, /No issues found in analyzed sessions/,
+    'sentinel records must carry a recognizable "no issues" detail string');
+});
+
 process.stdout.write(`${passed}/${total} tests passed\n`);
 process.exit(passed === total ? 0 : 1);
