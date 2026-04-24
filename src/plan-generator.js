@@ -259,11 +259,15 @@ function normalizeRecord(rawRecord, projectHint, evidence) {
   const project = typeof rawRecord.project === 'string' && rawRecord.project.trim()
     ? rawRecord.project.trim()
     : projectHint || 'unknown';
+  const project_path = typeof rawRecord.project_path === 'string' && rawRecord.project_path.trim()
+    ? rawRecord.project_path.trim()
+    : null;
   const dimension = rawRecord.dimension || rawRecord.dim || rawRecord.category || evidenceRecord.dimension || null;
   const name = rawRecord.name || evidenceRecord.name || rawRecord.title || rawRecord.check_name || checkId;
 
   return {
     project,
+    project_path,
     check_id: checkId,
     dimension,
     name,
@@ -278,20 +282,29 @@ function normalizeRecord(rawRecord, projectHint, evidence) {
   };
 }
 
-function buildItemsFromDimensionState(dimensionState, projectHint, evidence, templates, seen, collector) {
+function buildItemsFromDimensionState(dimensionState, projectHint, evidence, templates, seen, collector, projectPathHint) {
   for (const checks of Object.values(dimensionState)) {
     if (!checks || !Array.isArray(checks.checks)) continue;
     for (const record of checks.checks) {
+      // Dimension checks are aggregated within a by_project entry, so they
+      // don't carry their own project/project_path. Inject both hints so
+      // dedupe and routing work on the full path when available.
       const normalized = normalizeRecord(
         {
           ...record,
           project: record.project || projectHint,
+          project_path: record.project_path || projectPathHint || null,
         },
         projectHint,
         evidence,
       );
       if (!normalized || !normalized.fix_type) continue;
-      const dedupeKey = `${normalized.project}|${normalized.check_id}`;
+      // Dedupe by project_path (absolute) when available — basename alone
+      // collides when two repos with the same dir name live under different
+      // parents. Fall back to basename for records without a path (legacy
+      // scorer output, extended analyzers today).
+      const dedupeProject = normalized.project_path || normalized.project;
+      const dedupeKey = `${dedupeProject}|${normalized.check_id}`;
       if (seen.has(dedupeKey)) continue;
       seen.add(dedupeKey);
       normalized.fix_action = inferFixAction(normalized.check_id, normalized, templates);
@@ -307,11 +320,16 @@ function extractChecks(parsed, evidence, templates) {
   const hasProjectScoped = isObject(parsed.by_project) && Object.keys(parsed.by_project).length > 0;
 
   if (hasProjectScoped) {
-    for (const [projectName, projectEntry] of Object.entries(parsed.by_project)) {
+    for (const [projectKey, projectEntry] of Object.entries(parsed.by_project)) {
       if (!isObject(projectEntry)) continue;
+      // by_project keys are now absolute paths when scanner emitted them.
+      // Pull display name from projectEntry.project (basename) when present;
+      // fall back to the key for legacy scorer output.
+      const displayProject = (projectEntry.project && String(projectEntry.project).trim()) || projectKey;
+      const projectPath = (projectEntry.project_path && String(projectEntry.project_path).trim()) || null;
       // Scorer outputs dimensions directly under project (not nested under .dimensions)
       const dims = isObject(projectEntry.dimensions) ? projectEntry.dimensions : projectEntry;
-      buildItemsFromDimensionState(dims, projectName, evidence, templates, seen, items);
+      buildItemsFromDimensionState(dims, displayProject, evidence, templates, seen, items, projectPath);
     }
   }
 
@@ -323,7 +341,12 @@ function extractChecks(parsed, evidence, templates) {
     for (const record of parsed.checks) {
       const normalized = normalizeRecord(record, 'unknown', evidence);
       if (!normalized || !normalized.fix_type) continue;
-      const dedupeKey = `${normalized.project}|${normalized.check_id}`;
+      // Dedupe by project_path (absolute) when available — basename alone
+      // collides when two repos with the same dir name live under different
+      // parents. Fall back to basename for records without a path (legacy
+      // scorer output, extended analyzers today).
+      const dedupeProject = normalized.project_path || normalized.project;
+      const dedupeKey = `${dedupeProject}|${normalized.check_id}`;
       if (seen.has(dedupeKey)) continue;
       normalized.fix_action = inferFixAction(normalized.check_id, normalized, templates);
       normalized.id = items.length + 1; // placeholder id before final ordering
@@ -352,6 +375,9 @@ function sortItems(items) {
     return {
       id: index + 1,
       project: item.project,
+      // project_path propagated so /al Step 5c and fixer can route fixes
+      // to the right absolute dir without reverse-mapping from basename.
+      project_path: item.project_path || null,
       check_id: item.check_id,
       dimension: item.dimension,
       name: item.name,

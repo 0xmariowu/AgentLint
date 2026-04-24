@@ -601,8 +601,17 @@ emit_result() {
     return 1
   fi
 
+  # `project_path` is the absolute directory the scan ran against. Required
+  # downstream (scorer/plan-generator bucket by path, not by basename) so
+  # two repos with the same basename under different parent dirs — e.g.
+  # $PROJECTS_ROOT/org1/app and $PROJECTS_ROOT/org2/app — stay distinct.
+  # bash dynamic scoping lets us read $project_dir from the calling
+  # scan_project frame; if that frame is missing, fall back to empty so
+  # downstream consumers can still validate the field's presence.
+  local project_path="${project_dir:-}"
   line="$(jq -cn \
     --arg project "$project_name" \
+    --arg project_path "$project_path" \
     --arg dimension "$dimension" \
     --arg check_id "$check_id" \
     --arg name "$check_name" \
@@ -613,6 +622,7 @@ emit_result() {
     --argjson score "$score_json" \
     '{
       project: $project,
+      project_path: $project_path,
       dimension: $dimension,
       check_id: $check_id,
       name: $name,
