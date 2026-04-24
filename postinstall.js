@@ -44,7 +44,10 @@ function main() {
   console.log(LOGO);
   console.log("\x1b[1mAgentLint v" + PKG_VERSION + "\x1b[0m — The linter for your agent harness");
   console.log("─".repeat(62));
-  console.log("\x1b[36mPrivacy first: agentlint reads your repo locally. Nothing leaves your machine.\x1b[0m");
+  console.log("\x1b[36mPrivacy by mode:\x1b[0m");
+  console.log("\x1b[36m  Core scan / GitHub Action — local only. No network, no AI.\x1b[0m");
+  console.log("\x1b[36m  Deep (opt-in)   — sends selected entry files to a Claude sub-agent.\x1b[0m");
+  console.log("\x1b[36m  Session (opt-in)— reads local ~/.claude/projects logs; output redacted by default.\x1b[0m");
   console.log("─".repeat(62));
   console.log();
 
