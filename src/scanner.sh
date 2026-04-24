@@ -2080,6 +2080,15 @@ main() {
         }
         project_dir="$1"
         ;;
+      --project-dir=*)
+        # Accept equals form so callers like agentlint.sh can forward
+        # `--project-dir=PATH` directly without re-parsing.
+        project_dir="${arg#--project-dir=}"
+        [ -n "$project_dir" ] || {
+          printf '%s\n' "--project-dir requires a path" >&2
+          exit 1
+        }
+        ;;
       -h|--help)
         usage
         exit 0
