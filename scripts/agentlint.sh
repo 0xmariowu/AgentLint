@@ -34,6 +34,20 @@ _al_cleanup() {
 }
 trap _al_cleanup EXIT
 
+# Emit a concise error for flags called without a value. Without this helper,
+# `agentlint fix --project-dir` (no value) hits `set -u` inside the parser and
+# exits non-zero with `$1: unbound variable` — technically the right exit code,
+# but stderr is unreadable and callers treat it as a bug report, not a usage
+# error. Also catches `--foo --bar` where a value was expected.
+require_value() {
+  local flag="$1"
+  local value="${2-}"
+  if [[ -z "$value" || "$value" == --* ]]; then
+    echo "agentlint: $flag requires a value" >&2
+    exit 1
+  fi
+}
+
 run_scan() {
   _AL_TMPDIR="$(mktemp -d -t agentlint-XXXXXX)"
   _AL_SCAN_OUT="${_AL_TMPDIR}/scan.jsonl"
@@ -85,17 +99,18 @@ case "${1:-}" in
     reporter_args=()
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --project-dir|--project-dir=*)
+        --project-dir)
+          require_value "$1" "${2-}"
+          scanner_args+=("$1" "$2")
+          shift
+          ;;
+        --project-dir=*)
           scanner_args+=("$1")
-          if [[ "$1" == "--project-dir" ]]; then
-            shift
-            scanner_args+=("${1-}")
-          fi
           ;;
         --format|--output-dir|--fail-below|--before)
-          reporter_args+=("$1")
+          require_value "$1" "${2-}"
+          reporter_args+=("$1" "$2")
           shift
-          reporter_args+=("${1-}")
           ;;
         --format=*|--output-dir=*|--fail-below=*|--before=*|--sarif-include-all)
           reporter_args+=("$1")
@@ -118,13 +133,15 @@ case "${1:-}" in
     has_project_dir=0
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --project-dir|--project-dir=*)
+        --project-dir)
+          require_value "$1" "${2-}"
+          has_project_dir=1
+          path_args+=("$1" "$2")
+          shift
+          ;;
+        --project-dir=*)
           has_project_dir=1
           path_args+=("$1")
-          if [[ "$1" == "--project-dir" ]]; then
-            shift
-            path_args+=("$1")
-          fi
           ;;
         --*)
           path_args+=("$1")

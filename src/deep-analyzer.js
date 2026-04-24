@@ -221,13 +221,28 @@ function main() {
     const checkId = args[args.indexOf('--check') + 1] || 'D1';
     const checkName = PROMPTS[checkId]?.name || checkId;
     const input = fs.readFileSync(0, 'utf8');
+    let result;
     try {
-      const result = JSON.parse(input);
-      const lines = formatResultAsJsonl(project, checkId, checkName, result);
-      lines.forEach(l => process.stdout.write(l + '\n'));
+      result = JSON.parse(input);
     } catch (e) {
-      process.stderr.write(`Failed to parse AI result: ${e.message}\n`);
+      // Fail loudly — silently dropping bad AI output would let regressions
+      // slip through. See docs/post-remediation-deep-review.md Low #5.
+      process.stderr.write(`deep-analyzer: failed to parse AI result: ${e.message}\n`);
+      process.exit(1);
     }
+    // The scorer needs at least the expected key (contradictions / dead_weight /
+    // vague_rules) to produce a record. Missing key = AI drift or prompt break;
+    // exit non-zero so callers notice.
+    const expectedKey = { D1: 'contradictions', D2: 'dead_weight', D3: 'vague_rules' }[checkId];
+    if (expectedKey && !Array.isArray(result && result[expectedKey])) {
+      process.stderr.write(
+        `deep-analyzer: ${checkId} result missing required array key '${expectedKey}' ` +
+        `(got keys: ${Object.keys(result || {}).join(', ') || 'none'})\n`,
+      );
+      process.exit(1);
+    }
+    const lines = formatResultAsJsonl(project, checkId, checkName, result);
+    lines.forEach((l) => process.stdout.write(l + '\n'));
     return;
   }
 
