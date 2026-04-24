@@ -351,5 +351,33 @@ runTest('/al Deep/Session flow scores only after all selected analyzers run', ()
     'Step 3 must not invoke scorer.js — scoring belongs to Step 3c after analyzers have merged');
 });
 
+runTest('/al Session section aligns with Step 3b positioning', () => {
+  // PR #156 moved Session into Step 3b but left the Session subsection's
+  // original "After Step 4, before Step 5" text intact — a direct
+  // contradiction. Session must be described as Step 3b and must not
+  // claim a post-scoring position.
+  const src = fs.readFileSync(path.join(ROOT, 'commands', 'al.md'), 'utf8');
+  const sessionSection = src.slice(src.indexOf('## Session Analysis'));
+  assert.doesNotMatch(sessionSection, /After Step 4, before Step 5/,
+    'Session section must not claim a post-scoring position — it runs in Step 3b');
+  assert.match(sessionSection, /Step 3b/,
+    'Session section must identify itself as Step 3b');
+});
+
+runTest('/al Deep conversion uses per-project file names, not shared literals', () => {
+  // Previously the Deep conversion example used `--project my-project`
+  // (literal) and `$RUN_DIR/d1-ai.json` (shared across all projects).
+  // Multi-project runs would mis-attribute findings or overwrite files.
+  // Must use `$P` and `$RUN_DIR/${P}.d1-ai.json` form.
+  const src = fs.readFileSync(path.join(ROOT, 'commands', 'al.md'), 'utf8');
+  const deepSection = src.slice(src.indexOf('## AI Deep Analysis'));
+  assert.doesNotMatch(deepSection, /--project my-project/,
+    'Deep conversion must not use the literal project name "my-project" — pass "$P"');
+  assert.doesNotMatch(deepSection, /\$RUN_DIR\/d1-ai\.json\b/,
+    'Deep conversion must not use shared per-check filenames — prefix with per-project "$P"');
+  assert.match(deepSection, /\$\{P\}\.d1-ai\.json/,
+    'Deep conversion must use per-project file names like "${P}.d1-ai.json"');
+});
+
 process.stdout.write(`${passed}/${total} tests passed\n`);
 process.exit(passed === total ? 0 : 1);
