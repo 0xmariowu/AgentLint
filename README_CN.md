@@ -309,7 +309,17 @@ claude plugin update agent-lint@agent-lint
 <details>
 <summary><strong>我的代码会被发送到任何地方吗？</strong></summary>
 
-不会。AgentLint 在本地运行。唯一的出站流量是 Claude Code 本身产生的。
+看你跑的是哪种模式。默认模式（`agentlint check` 和 GitHub Action）纯本地、不调用 AI。两个 opt-in 扩展模式会接触 AI 或本地 session 日志——我们把细节写清楚，避免意外：
+
+| 模式 | 读取的数据 | 网络 / AI |
+|------|----------|----------|
+| `agentlint check`（默认）| 被扫描 repo 里的文件 | **纯本地，无 AI** |
+| GitHub Action | runner 里 checkout 的 repo 文件 | **纯本地，无 AI** |
+| `/al`（仅 core 维度）| 配置的 `PROJECTS_ROOT` 下的 git repo | **纯本地，无 AI** |
+| `/al` + Deep（opt-in）| 选中的入口文件（如 `CLAUDE.md`）| **把文件内容发送给 Claude sub-agent** |
+| `/al` + Session（opt-in）| 你机器上的 `~/.claude/projects/` 日志 | 本地分析。输出默认脱敏，原文片段需要 `--include-raw-snippets` |
+
+只有 Deep 模式会把文件内容传出你的机器，而且必须在 Claude Code 里显式 opt-in 才会跑。默认 scan 产出的一切（`Score: NN/100 (core)` 输出、JSONL、SARIF、GitHub Action 标注）全都来自磁盘上的 pattern 检查，不打 API。
 </details>
 
 <details>
