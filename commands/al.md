@@ -53,10 +53,16 @@ flow, use the env-var path so the scanner auto-discovers every git repo under
 
 ```bash
 AL_DIR="${CLAUDE_PLUGIN_ROOT}"
-RUN_DIR="$(mktemp -d "${CLAUDE_PLUGIN_DATA:-$HOME/.al}/runs/$(date +%Y%m%d)-XXXXXX")"
+RUN_ROOT="${CLAUDE_PLUGIN_DATA:-$HOME/.al}/runs"
+mkdir -p "$RUN_ROOT"
+RUN_DIR="$(mktemp -d "$RUN_ROOT/$(date +%Y%m%d)-XXXXXX")"
 PROJECTS_ROOT="$PROJECTS_ROOT" bash "$AL_DIR/src/scanner.sh" > "$RUN_DIR/scan.jsonl"
 node "$AL_DIR/src/scorer.js" "$RUN_DIR/scan.jsonl" > "$RUN_DIR/scores.json"
 ```
+
+`mkdir -p "$RUN_ROOT"` is required because `mktemp -d` fails if the parent
+directory doesn't exist — which is exactly the state on a user's first `/al`
+invocation after plugin install.
 
 `RUN_DIR` replaces the old `/tmp/al-*.jsonl` paths so concurrent Claude
 sessions on the same machine don't overwrite each other's runs.
