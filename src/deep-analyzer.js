@@ -216,9 +216,24 @@ function main() {
   const formatResults = args.includes('--format-result');
 
   if (formatResults) {
-    // Mode 2: format AI result into JSONL
-    const project = args[args.indexOf('--project') + 1] || 'unknown';
-    const checkId = args[args.indexOf('--check') + 1] || 'D1';
+    // Mode 2: format AI result into JSONL.
+    // --check must be one of the supported Deep check IDs. Prior behavior
+    // defaulted to 'D1' on missing --check and accepted D4 / lowercase /
+    // garbage silently (expectedKey = undefined made the validation branch
+    // short-circuit false), producing empty output with exit 0. Validate
+    // strictly up front.
+    const VALID_CHECK_IDS = new Set(['D1', 'D2', 'D3']);
+    const checkIdx = args.indexOf('--check');
+    const checkId = checkIdx >= 0 ? args[checkIdx + 1] : undefined;
+    if (!VALID_CHECK_IDS.has(checkId)) {
+      process.stderr.write(
+        `deep-analyzer: --check must be one of ${[...VALID_CHECK_IDS].join(', ')} ` +
+        `(got ${JSON.stringify(checkId)})\n`,
+      );
+      process.exit(1);
+    }
+    const projectIdx = args.indexOf('--project');
+    const project = projectIdx >= 0 ? args[projectIdx + 1] : 'unknown';
     const checkName = PROMPTS[checkId]?.name || checkId;
     const input = fs.readFileSync(0, 'utf8');
     let result;
@@ -234,7 +249,7 @@ function main() {
     // vague_rules) to produce a record. Missing key = AI drift or prompt break;
     // exit non-zero so callers notice.
     const expectedKey = { D1: 'contradictions', D2: 'dead_weight', D3: 'vague_rules' }[checkId];
-    if (expectedKey && !Array.isArray(result && result[expectedKey])) {
+    if (!Array.isArray(result && result[expectedKey])) {
       process.stderr.write(
         `deep-analyzer: ${checkId} result missing required array key '${expectedKey}' ` +
         `(got keys: ${Object.keys(result || {}).join(', ') || 'none'})\n`,
