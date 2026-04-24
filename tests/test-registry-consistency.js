@@ -174,5 +174,26 @@ runTest('commands/al.md creates RUN_DIR parent before mktemp', () => {
     'mktemp -d must appear AFTER mkdir -p so the parent exists first');
 });
 
+runTest('commands/al.md resolves $PROJECT_DIR before fixer.js invocation', () => {
+  // Step 6 calls `fixer.js --project-dir "$PROJECT_DIR"`. Without a prior
+  // resolution step, $PROJECT_DIR is undefined and fixer either errors or
+  // (worse) picks the wrong repo if the shell happens to have the var set.
+  // Resolution must come from SELECTED_PROJECT (chosen via AskUserQuestion
+  // on multi-project scans) mapped back to an absolute path.
+  const src = fs.readFileSync(path.join(ROOT, 'commands', 'al.md'), 'utf8');
+  const usesProjectDir = src.includes('--project-dir "$PROJECT_DIR"');
+  if (!usesProjectDir) return; // if the flag stops being used, nothing to guard
+  const resolutionIdx = src.indexOf('PROJECT_DIR="$(find "$PROJECTS_ROOT"');
+  // Match the executable invocation specifically, not prose mentions of fixer.js
+  const fixerInvokeIdx = src.indexOf('node "$AL_DIR/src/fixer.js"');
+  assert.ok(resolutionIdx >= 0,
+    'commands/al.md must resolve PROJECT_DIR from SELECTED_PROJECT before calling fixer.js');
+  assert.ok(fixerInvokeIdx > resolutionIdx,
+    'PROJECT_DIR resolution must appear BEFORE the node ... fixer.js invocation');
+  assert.match(src, /SELECTED_PROJECT/,
+    'commands/al.md must introduce SELECTED_PROJECT (single or user-picked) ' +
+    'to drive the resolution');
+});
+
 process.stdout.write(`${passed}/${total} tests passed\n`);
 process.exit(passed === total ? 0 : 1);
