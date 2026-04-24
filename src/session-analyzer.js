@@ -651,6 +651,8 @@ function buildS1Findings(sessions, options) {
       records.push({
         sessionId: session.id,
         text: entry.text,
+        project: session.project,
+        project_path: session.project_path,
       });
     }
   }
@@ -661,8 +663,30 @@ function buildS1Findings(sessions, options) {
   const includeRaw = Boolean(options && options.includeRawSnippets);
   return clusters.map((cluster) => {
     const shown = displaySnippet(cluster.instruction, includeRaw);
+    let project = null;
+    let projectPath = null;
+
+    for (const rec of cluster.records) {
+      if (!rec.project_path) {
+        project = null;
+        projectPath = null;
+        break;
+      }
+      if (projectPath === null) {
+        projectPath = rec.project_path;
+        project = rec.project || null;
+        continue;
+      }
+      if (projectPath !== rec.project_path) {
+        project = null;
+        projectPath = null;
+        break;
+      }
+    }
+
     return {
-      project: 'global',
+      project,
+      project_path: projectPath,
       dimension: 'session',
       check_id: 'SS1',
       name: 'Repeated instructions',
@@ -736,7 +760,7 @@ function buildS2Findings(sessions, catalog, options) {
   const hits = new Map();
 
   for (const session of sessions) {
-    const project = catalog.find((entry) => entry.name === session.project) || matchProjectFromCatalog(session.projectRaw, catalog);
+    const project = session.project_entry || catalog.find((entry) => entry.name === session.project) || matchProjectFromCatalog(session.projectRaw, catalog);
     if (!project || !project.rules.length) continue;
     const entries = session.entries;
 
@@ -749,9 +773,10 @@ function buildS2Findings(sessions, catalog, options) {
 
       for (const rule of project.rules) {
         if (!ruleMatchesContext(rule, context)) continue;
-        const key = `${project.name}::${rule.text}`;
+        const key = `${project.dir}\u0000${rule.text}`;
         const hit = hits.get(key) || {
           project: project.name,
+          project_path: project.dir,
           rule: rule.text,
           count: 0,
           sessions: new Set(),
@@ -770,6 +795,7 @@ function buildS2Findings(sessions, catalog, options) {
       const shownRule = displaySnippet(hit.rule, includeRaw);
       return {
         project: hit.project,
+        project_path: hit.project_path,
         dimension: 'session',
         check_id: 'SS2',
         name: 'Ignored rules',
@@ -859,6 +885,8 @@ async function run() {
       id: filePath,
       projectRaw: sessionProject,
       project: projectMapping ? projectMapping.name : sessionProject,
+      project_path: projectMapping ? projectMapping.dir : null,
+      project_entry: projectMapping,
       entries,
       friction,
     });
@@ -897,6 +925,8 @@ async function run() {
   for (const checkId of Object.keys(SS_CHECK_NAMES)) {
     if (reportedCheckIds.has(checkId)) continue;
     process.stdout.write(`${JSON.stringify({
+      project: null,
+      project_path: null,
       dimension: 'session',
       check_id: checkId,
       name: SS_CHECK_NAMES[checkId],

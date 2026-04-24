@@ -213,11 +213,15 @@ function mergeRecord(targets, record, checkWeights, dimensionsConfig, thresholds
   // analyzers today; deep.jsonl / session.jsonl for dimension-scoped
   // records). We key the displayed entry by basename and record
   // project_path for downstream consumers that need to disambiguate.
-  const pathKey = record.project_path || record.project || 'unknown';
+  const projectPath = typeof record.project_path === 'string' && record.project_path.trim();
+  const projectName = typeof record.project === 'string' && record.project.trim() && record.project !== 'unknown';
+  if (!projectPath && !projectName) return;
+
+  const pathKey = projectPath || record.project;
   if (!targets.byProject[pathKey]) {
     targets.byProject[pathKey] = {
       state: initDimensionState(dimensionsConfig),
-      project: record.project || null,
+      project: projectName ? record.project : null,
       project_path: record.project_path || null,
     };
   }

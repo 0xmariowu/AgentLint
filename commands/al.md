@@ -346,18 +346,26 @@ core scan JSONL  (from $RUN_DIR/scan.jsonl)
 ### Step-by-step
 
 Note: the Deep analyzer needs a resolved absolute path per project. In
-the multi-project flow, that resolution happens in Step 5c — but Step 3b
-runs earlier. Here, iterate over every discovered project (from the
-scan output's unique `project` values) and resolve each basename to its
-absolute path the same way Step 5c does (`find $PROJECTS_ROOT -maxdepth 4
--type d -name .git | dirname | grep basename`). Produce one deep.jsonl
-record per (project, check) pair.
+the multi-project flow, that resolution happens in Step 5c. Step 3b now
+runs earlier, so it must use `scan.jsonl`'s `project_path` values
+directly to avoid basename collision. Produce one deep.jsonl record per
+(project, check) pair.
 
-1. For each project `P` (with resolved absolute path `$P_DIR`), generate
-   Deep prompt tasks:
+1. For each unique `project_path` value `$P_DIR` in scan output, generate
+   Deep prompt tasks and process outputs in one loop:
 
 ```bash
-tasks=$(node "$AL_DIR/src/deep-analyzer.js" --project-dir "$P_DIR")
+PROJECT_PATHS="$(jq -r '.project_path // empty' "$RUN_DIR/scan.jsonl" | sort -u)"
+printf '%s\n' "$PROJECT_PATHS" | while IFS= read -r P_DIR; do
+  [ -z "$P_DIR" ] && continue
+  [ ! -d "$P_DIR" ] && continue
+  P="$(basename "$P_DIR")"
+  P_HASH="$(node -e "console.log(require('crypto').createHash('sha1').update(process.argv[1]).digest('hex').slice(0, 8))" "$P_DIR")"
+  PREFIX="${P}-${P_HASH}"
+
+  tasks=$(node "$AL_DIR/src/deep-analyzer.js" --project-dir "$P_DIR")
+  # ... for each task in "$tasks", launch one AI reviewer ... 
+done
 ```
 
 2. For each task in `tasks`, spawn a sonnet subagent with the prompt:
@@ -378,23 +386,24 @@ File: {path}
 ```
 
 3. Save each subagent's JSON output to **per-project** files so
-   multi-project runs don't stomp on each other. Use the project
-   basename `$P` (derived from `$P_DIR` at step 1) as a prefix:
+   multi-project runs don't stomp on each other. Use a basename+hash
+   prefix `${PREFIX}` so same basenames in different folders don't
+   collide:
 
-   `$RUN_DIR/${P}.d1-ai.json`, `$RUN_DIR/${P}.d2-ai.json`,
-   `$RUN_DIR/${P}.d3-ai.json`.
+   `$RUN_DIR/${PREFIX}.d1-ai.json`, `$RUN_DIR/${PREFIX}.d2-ai.json`,
+   `$RUN_DIR/${PREFIX}.d3-ai.json`.
 
    With N projects × 3 checks you get 3N files, not 3 shared ones.
    This is required — a shared `d1-ai.json` would be overwritten by
    every project after the first.
 
-4. Convert each AI response to scorer-compatible JSONL, passing
-   `$P` so the emitted records carry the right project:
+4. Convert each AI response to scorer-compatible JSONL, passing both
+   `$P` and `$P_DIR` so the emitted records carry both basename + path:
 
 ```bash
-node "$AL_DIR/src/deep-analyzer.js" --format-result --project "$P" --check D1 < "$RUN_DIR/${P}.d1-ai.json" >> "$RUN_DIR/deep.jsonl"
-node "$AL_DIR/src/deep-analyzer.js" --format-result --project "$P" --check D2 < "$RUN_DIR/${P}.d2-ai.json" >> "$RUN_DIR/deep.jsonl"
-node "$AL_DIR/src/deep-analyzer.js" --format-result --project "$P" --check D3 < "$RUN_DIR/${P}.d3-ai.json" >> "$RUN_DIR/deep.jsonl"
+node "$AL_DIR/src/deep-analyzer.js" --format-result --project "$P" --project-path "$P_DIR" --check D1 < "$RUN_DIR/${PREFIX}.d1-ai.json" >> "$RUN_DIR/deep.jsonl"
+node "$AL_DIR/src/deep-analyzer.js" --format-result --project "$P" --project-path "$P_DIR" --check D2 < "$RUN_DIR/${PREFIX}.d2-ai.json" >> "$RUN_DIR/deep.jsonl"
+node "$AL_DIR/src/deep-analyzer.js" --format-result --project "$P" --project-path "$P_DIR" --check D3 < "$RUN_DIR/${PREFIX}.d3-ai.json" >> "$RUN_DIR/deep.jsonl"
 ```
 
 `deep.jsonl` is append-only across all projects; the per-project
