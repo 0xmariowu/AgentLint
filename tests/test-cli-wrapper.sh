@@ -145,6 +145,56 @@ fi
 rm -f "$fix_stdout" "$fix_stderr"
 
 # ---------------------------------------------------------------------------
+# Test 6: `check --format html --output-dir` writes an HTML report
+# (P2-4 — exposes reporter flags through the CLI, previously Action-only).
+# ---------------------------------------------------------------------------
+check_repo="$(mktemp -d)"
+check_out="$(mktemp -d)"
+git -C "$check_repo" init -q
+git -C "$check_repo" config user.email "test@test.com"
+git -C "$check_repo" config user.name "Test"
+printf '# Project\n' > "$check_repo/CLAUDE.md"
+git -C "$check_repo" add -A
+git -C "$check_repo" commit -q -m init
+
+"$WRAPPER" check --project-dir "$check_repo" --format html --output-dir "$check_out" >/dev/null 2>&1
+rc=$?
+if [ "$rc" -eq 0 ] && ls "$check_out"/*.html >/dev/null 2>&1; then
+  ok "check --format html --output-dir writes HTML file"
+else
+  fail "check --format html --output-dir failed (rc=$rc)"
+fi
+
+rm -rf "$check_repo" "$check_out"
+
+# ---------------------------------------------------------------------------
+# Test 7: `check --fail-below N` gates on score.
+# ---------------------------------------------------------------------------
+gate_repo="$(mktemp -d)"
+git -C "$gate_repo" init -q
+git -C "$gate_repo" config user.email "test@test.com"
+git -C "$gate_repo" config user.name "Test"
+printf '# Project\n' > "$gate_repo/CLAUDE.md"
+git -C "$gate_repo" add -A
+git -C "$gate_repo" commit -q -m init
+
+"$WRAPPER" check --project-dir "$gate_repo" --fail-below 99 >/dev/null 2>&1
+if [ "$?" -ne 0 ]; then
+  ok "check --fail-below 99 exits non-zero"
+else
+  fail "check --fail-below 99 did not exit non-zero"
+fi
+
+"$WRAPPER" check --project-dir "$gate_repo" --fail-below 0 >/dev/null 2>&1
+if [ "$?" -eq 0 ]; then
+  ok "check --fail-below 0 exits zero"
+else
+  fail "check --fail-below 0 did not exit zero"
+fi
+
+rm -rf "$gate_repo"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
