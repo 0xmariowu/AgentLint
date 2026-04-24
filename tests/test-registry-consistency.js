@@ -273,6 +273,14 @@ runTest('agentlint fix without a check id fails fast with a product-level messag
   // no flag in between — reject it.
   assert.doesNotMatch(src, /fixer\.js"\s+"\$\{path_args\[@\]\}"/,
     'agentlint.sh must not invoke fixer.js without --checks or --items');
+  // Parser must accept comma-separated check ids like `W11,F5,S1` (help
+  // advertises the form; README too). Prior regex was `^[A-Z][A-Z0-9-]+$`
+  // with no comma, so `fix W11,F5` hit the `path_args` fallback and then
+  // tripped the no-check-id error.
+  assert.match(src, /\^\[A-Z\]\[A-Z0-9-\]\+\(,\[A-Z\]\[A-Z0-9-\]\+\)\*\$/,
+    'agentlint.sh fix parser must accept comma-separated check IDs');
+  assert.match(src, /agentlint fix W11,F5,S1/,
+    'agentlint help output must document the comma-separated form');
 });
 
 runTest('setup.sh validates flag values and is non-destructive by default', () => {
