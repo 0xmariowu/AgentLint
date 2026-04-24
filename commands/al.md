@@ -47,15 +47,23 @@ Press Enter → uses `~/Projects`. Save to `${CLAUDE_PLUGIN_DATA}/config.json`. 
 
 ### Step 3: Scan + Score (no interaction)
 
+`scanner.sh`'s `--project-dir` is single-project. For `/al`'s multi-project
+flow, use the env-var path so the scanner auto-discovers every git repo under
+`PROJECTS_ROOT`:
+
 ```bash
 AL_DIR="${CLAUDE_PLUGIN_ROOT}"
-bash "$AL_DIR/src/scanner.sh" --project-dir "$PROJECTS_ROOT" > /tmp/al-scan.jsonl
-node "$AL_DIR/src/scorer.js" /tmp/al-scan.jsonl > /tmp/al-scores.json
+RUN_DIR="$(mktemp -d "${CLAUDE_PLUGIN_DATA:-$HOME/.al}/runs/$(date +%Y%m%d)-XXXXXX")"
+PROJECTS_ROOT="$PROJECTS_ROOT" bash "$AL_DIR/src/scanner.sh" > "$RUN_DIR/scan.jsonl"
+node "$AL_DIR/src/scorer.js" "$RUN_DIR/scan.jsonl" > "$RUN_DIR/scores.json"
 ```
+
+`RUN_DIR` replaces the old `/tmp/al-*.jsonl` paths so concurrent Claude
+sessions on the same machine don't overwrite each other's runs.
 
 ### Step 4: Present Scores (no interaction)
 
-Read `/tmp/al-scores.json` and present. The `(core)` suffix on the total
+Read `$RUN_DIR/scores.json` and present. The `(core)` suffix on the total
 line appears when Deep/Session did not run — it signals that the score is
 averaged over the 6 core dimensions only. Extended dimensions that didn't
 run show as `n/a`, not `0/10`.
@@ -83,10 +91,10 @@ By Project:
 
 Run plan generator:
 ```bash
-node "$AL_DIR/src/plan-generator.js" /tmp/al-scores.json > /tmp/al-plan.json
+node "$AL_DIR/src/plan-generator.js" $RUN_DIR/scores.json > $RUN_DIR/plan.json
 ```
 
-Read `/tmp/al-plan.json`. **First print the full plan as readable text**, then AskUserQuestion.
+Read `$RUN_DIR/plan.json`. **First print the full plan as readable text**, then AskUserQuestion.
 
 **Step 5a: Print fix plan (no interaction)**
 
@@ -134,7 +142,7 @@ Severity grouping logic (matches plan-generator.js `inferSeverity`):
 
 For selected items:
 ```bash
-node "$AL_DIR/src/fixer.js" --items "1,2,3" --project-dir "$PROJECT_DIR" < /tmp/al-plan.json
+node "$AL_DIR/src/fixer.js" --items "1,2,3" --project-dir "$PROJECT_DIR" < $RUN_DIR/plan.json
 ```
 
 Present results:
@@ -151,10 +159,10 @@ Present results:
 
 ### Step 7: Verify + Report (no interaction)
 
-Re-run scanner + scorer:
+Re-run scanner + scorer (same env-var form as Step 3):
 ```bash
-bash "$AL_DIR/src/scanner.sh" --project-dir "$PROJECTS_ROOT" > /tmp/al-verify.jsonl
-node "$AL_DIR/src/scorer.js" /tmp/al-verify.jsonl > /tmp/al-verify-scores.json
+PROJECTS_ROOT="$PROJECTS_ROOT" bash "$AL_DIR/src/scanner.sh" > $RUN_DIR/verify-scan.jsonl
+node "$AL_DIR/src/scorer.js" $RUN_DIR/verify-scan.jsonl > $RUN_DIR/verify-scores.json
 ```
 
 Show delta:
@@ -171,8 +179,8 @@ Show delta:
 Save report:
 ```bash
 mkdir -p ${CLAUDE_PLUGIN_DATA}/reports
-cp /tmp/al-verify-scores.json ${CLAUDE_PLUGIN_DATA}/reports/$(date +%F).json
-cp /tmp/al-plan.json ${CLAUDE_PLUGIN_DATA}/reports/$(date +%F)-plan.json
+cp $RUN_DIR/verify-scores.json ${CLAUDE_PLUGIN_DATA}/reports/$(date +%F).json
+cp $RUN_DIR/plan.json ${CLAUDE_PLUGIN_DATA}/reports/$(date +%F)-plan.json
 ```
 
 Clean up temp files.
@@ -190,7 +198,7 @@ after these JSONL records exist.
 ### The merge flow
 
 ```text
-core scan JSONL  (from /tmp/al-scan.jsonl)
+core scan JSONL  (from $RUN_DIR/scan.jsonl)
 + deep-analyzer JSONL (D1, D2, D3 — from the flow below)
 + session-analyzer JSONL (SS1-SS4, if Session also selected)
 → cat into combined.jsonl
@@ -224,14 +232,14 @@ Respond with JSON only. Expected keys by check:
 File: {path}
 ```
 
-3. Save each subagent's JSON output to `/tmp/al-d{1,2,3}-ai.json`.
+3. Save each subagent's JSON output to `$RUN_DIR/d{1,2,3}-ai.json`.
 
 4. Convert each AI response to scorer-compatible JSONL:
 
 ```bash
-node "$AL_DIR/src/deep-analyzer.js" --format-result --project my-project --check D1 < /tmp/al-d1-ai.json >> /tmp/al-deep.jsonl
-node "$AL_DIR/src/deep-analyzer.js" --format-result --project my-project --check D2 < /tmp/al-d2-ai.json >> /tmp/al-deep.jsonl
-node "$AL_DIR/src/deep-analyzer.js" --format-result --project my-project --check D3 < /tmp/al-d3-ai.json >> /tmp/al-deep.jsonl
+node "$AL_DIR/src/deep-analyzer.js" --format-result --project my-project --check D1 < $RUN_DIR/d1-ai.json >> $RUN_DIR/deep.jsonl
+node "$AL_DIR/src/deep-analyzer.js" --format-result --project my-project --check D2 < $RUN_DIR/d2-ai.json >> $RUN_DIR/deep.jsonl
+node "$AL_DIR/src/deep-analyzer.js" --format-result --project my-project --check D3 < $RUN_DIR/d3-ai.json >> $RUN_DIR/deep.jsonl
 ```
 
 If AI output is malformed or missing the required key, `--format-result`
@@ -241,11 +249,11 @@ rather than scoring without that check.
 5. Merge into the scoring pipeline:
 
 ```bash
-cat /tmp/al-scan.jsonl /tmp/al-deep.jsonl /tmp/al-session.jsonl 2>/dev/null \
-  > /tmp/al-combined.jsonl
+cat $RUN_DIR/scan.jsonl $RUN_DIR/deep.jsonl $RUN_DIR/session.jsonl 2>/dev/null \
+  > $RUN_DIR/combined.jsonl
 
-node "$AL_DIR/src/scorer.js" /tmp/al-combined.jsonl > /tmp/al-scores.json
-node "$AL_DIR/src/plan-generator.js" /tmp/al-scores.json > /tmp/al-plan.json
+node "$AL_DIR/src/scorer.js" $RUN_DIR/combined.jsonl > $RUN_DIR/scores.json
+node "$AL_DIR/src/plan-generator.js" $RUN_DIR/scores.json > $RUN_DIR/plan.json
 ```
 
 The scorer sees real Deep/Session evidence, flips `score_scope` to
@@ -273,7 +281,7 @@ node "$AL_DIR/src/session-analyzer.js" \
   --projects-root "$PROJECTS_ROOT" \
   --session-root ~/.claude/projects \
   --max-sessions 30 \
-  > /tmp/al-session.jsonl
+  > $RUN_DIR/session.jsonl
 ```
 
 If the user opted into raw snippets:
@@ -284,7 +292,7 @@ node "$AL_DIR/src/session-analyzer.js" \
   --session-root ~/.claude/projects \
   --max-sessions 30 \
   --include-raw-snippets \
-  > /tmp/al-session.jsonl
+  > $RUN_DIR/session.jsonl
 ```
 
 Present findings inline. With default redaction, the `instruction` and
