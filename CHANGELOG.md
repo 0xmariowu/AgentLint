@@ -2,6 +2,145 @@
 
 ## Unreleased
 
+## v1.1.0 (2026-04-24)
+
+Minor bump — the default score number changes for most repos because
+previously-broken scoring semantics were fixed. No new checks shipped;
+this release is about making the 58-check / 8-dimension model actually
+behave the way the docs promise.
+
+### Scoring contract — `not_run` semantics
+
+- **fix (correctness)**: scorer no longer treats `Deep` and `Session` as
+  `0/10` when they didn't run. Each dimension now carries
+  `status: "run" | "not_run"` and `score: null` when not_run. The total
+  is averaged only over dimensions that actually produced evidence.
+- **new field**: `score_scope` (`"core"` or `"core+extended"`) on scorer
+  output. Terminal, Markdown, and HTML reporters render the suffix next
+  to the total so users can tell a default CLI/CI run (`core`) from a
+  `/al` run that opted into Deep/Session (`core+extended`).
+- **user-visible**: default `agentlint check` scores on a typical repo
+  rise by ~8 points. This is removing negative pollution, not inflation
+  — the old number was docking you for dims you never asked to run.
+
+### CLI
+
+- **new**: `agentlint check` with no arguments now scans the current
+  directory. Previously it fell through to `~/Projects` auto-discovery
+  and silently scored unrelated repos.
+- **new**: `agentlint check --all [--projects-root <path>]` is the
+  explicit multi-project mode. Mutually exclusive with `--project-dir`.
+- **new**: `agentlint check` forwards reporter flags (`--format`,
+  `--output-dir`, `--fail-below`, `--before`, `--sarif-include-all`) —
+  parity with the GitHub Action.
+- **new**: `--flag=value` (equals form) supported everywhere alongside
+  the existing space-separated form.
+- **fix**: missing-value flags (`check --format`, `fix --project-dir`,
+  etc.) exit non-zero with a clear `requires a value` error instead of
+  silently failing or crashing on an unbound variable.
+- **fix (macOS)**: bash 3.2 compatibility fix for `agentlint fix <ID>`
+  case-insensitive parsing (continued from v1.0.4).
+
+### GitHub Action
+
+- **new output**: `score-scope` so CI consumers can distinguish `core`
+  from `core+extended` without guessing.
+- **contract**: description updated to `51 core checks across 6
+  dimensions + 7 opt-in extended`. Deep/Session are not Action outputs
+  by design — they can't run in CI.
+
+### Reporters
+
+- Terminal, HTML, Markdown all render the `(core)` / `core+extended`
+  suffix. Deep and Session display as `n/a` when not_run (no more
+  misleading `0/10` rows).
+- HTML before/after compare mode: no more bogus `-8` delta pills when
+  a dimension flipped from `run` to `not_run` across runs.
+- By-Project terminal panel: skips not_run dimensions when averaging
+  per-project scores.
+
+### Plan generator / fixer
+
+- **new**: single-source fix registry. `standards/evidence.json` now
+  stores each check's `scope` (`core` | `extended`) and `fix_type`
+  (`auto` | `assisted` | `guided` | `null`). Both `plan-generator.js`
+  and `fixer.js` derive their dispatch from the registry — no more
+  silent drift between "plan promises X fix" and "fixer has no handler
+  for X". Unregistered checks default to `guided`.
+
+### Scanner
+
+- **fix**: W5 (oversized source files) uses `git ls-files` in git
+  repos so `coverage/`, `.pytest_cache/`, and other generated dirs no
+  longer trip the check. Filesystem fallback for non-git repos got 9
+  new exclusions (`.nyc_output`, `.mypy_cache`, `.ruff_cache`,
+  `.turbo`, `.cache`, `tmp`, `logs`).
+- **fix**: `scanner.sh --project-dir=PATH` equals form accepted (was
+  rejected as "unknown argument").
+- **fix**: paths containing `&` no longer get corrupted (old `sed`
+  back-reference behavior).
+
+### Session analyzer — privacy
+
+- **new**: `--session-root PATH` option (default `~/.claude/projects`).
+  Tests can point at a fixture root; callers can override without
+  relying on `HOME`.
+- **new**: privacy gate. With no matching project in `--projects-root`
+  and `--include-global` not set, the analyzer emits nothing. Avoids
+  leaking raw developer prompts when the catalog is empty.
+- **new**: output redacts raw prompt snippets by default to
+  `[redacted <N>ch #<hash>]`. Pass `--include-raw-snippets` to opt
+  back in.
+
+### Deep analyzer
+
+- **new**: `tests/fixtures/deep/` corpus (small/medium/large/
+  contradiction/no-entry) so `test-deep-analyzer.sh` runs on a clean
+  checkout. `AL_CORPUS_DIR` remains optional for large private corpora.
+- **fix**: `--format-result` exits non-zero on malformed JSON or when
+  the required key (`contradictions` / `dead_weight` / `vague_rules`)
+  is missing — silent drops are gone.
+
+### `/al` Claude Code command
+
+- Default module selection now covers all 6 core dimensions. Safety
+  and Harness were previously hidden behind extra clicks.
+- Deep and Session labelled as opt-in extended analyzers with an
+  explicit privacy note before Session runs.
+- Deep merge flow documented end-to-end: `deep-analyzer --format-result`
+  → JSONL → scorer → plan-generator → reporter/fixer. No more manual
+  "inject into the plan" step.
+- `/al` uses the scanner's env-var multi-project discovery path (not
+  the broken `--project-dir $PROJECTS_ROOT` single-project form) and
+  writes all intermediates to a session-scoped `$RUN_DIR` to avoid
+  collisions between concurrent Claude sessions.
+
+### Tests
+
+- `npm test` split into `test:core` / `test:js` / `test:action` tiers;
+  default runs all three. Previously only 4 of the 10 existing suites
+  ran locally (scorer / reporter / plan-generator / fixer / HTML /
+  action / SARIF were CI-only). Now 334 tests guard every boundary
+  the remediation pass surfaced.
+- New drift guards: `tests/test-registry-consistency.js`,
+  `tests/test-surface-sync.js`. Adding a new check without updating
+  docs/metadata/Action fails CI at PR review time.
+
+### CI / release
+
+- `release.yml` drift check now allows the three legitimate
+  dimension/check counts (6/2/8 for dims, 51/7/58 for checks). It used
+  to reject the correct "6 core dimensions" phrasing.
+- Shell hygiene: `lint:shell` npm script + CI gate on user-facing
+  scripts (`src/scanner.sh`, `scripts/*.sh`) and test harnesses.
+- Auto-merge workflow got the `contents: write` it actually needed.
+
+### Privacy copy
+
+- Install banner replaced "Nothing leaves your machine" with per-mode
+  copy: core / Action = local-only; Deep = sends entry files to a
+  Claude sub-agent; Session = local + redacted by default.
+
 ## v1.0.4 (2026-04-24)
 
 - **fix (macOS critical)**: `agentlint fix W11` (or any check id) no longer fails with `bad substitution` on macOS. The CLI wrapper used Bash 4+ syntax `${1^^}` for case-insensitive parsing; replaced with portable `printf | tr` so Mac's default Bash 3.2 works.
