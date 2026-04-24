@@ -417,6 +417,25 @@ runTest('session-analyzer emits "ran, no issue" sentinels so scope flips on clea
     'sentinel records must carry a recognizable "no issues" detail string');
 });
 
+runTest('scanner.sh resolves symlinks + handles empty/missing PROJECTS_ROOT', () => {
+  // Three failure modes that made scanner unusable in real setups:
+  //   1. Invoked via an npm global-install symlink, SCRIPT_DIR ended up at
+  //      the symlink location and REPO_ROOT/standards/evidence.json was
+  //      nowhere on disk.
+  //   2. `PROJECTS_ROOT='~/Projects'` (literal, from /al's saved config)
+  //      never tilde-expanded, so find walked nothing.
+  //   3. `"${projects[@]}"` on Bash 3.2 (macOS) with an empty array +
+  //      `set -u` crashed with `projects[@]: unbound variable` instead of
+  //      a product-level message.
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'scanner.sh'), 'utf8');
+  assert.match(src, /readlink -f "\$\{BASH_SOURCE\[0\]\}"/,
+    'scanner.sh must resolve its own path through readlink so npm symlinks work');
+  assert.match(src, /projects_root="\$HOME\/\$\{projects_root#'~\/'\}"/,
+    'scanner.sh must expand a leading ~/ in PROJECTS_ROOT');
+  assert.match(src, /\$\{#projects\[@\]\}"?\s*-eq\s*0/,
+    'scanner.sh must guard an empty discovered-projects array before iterating');
+});
+
 runTest('scanner + scorer + plan-generator bucket by project_path (not basename)', () => {
   // Same-basename repos under different parent dirs (e.g. org1/app +
   // org2/app) used to collide into one bucket end-to-end. Every layer
