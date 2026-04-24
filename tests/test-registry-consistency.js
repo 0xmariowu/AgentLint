@@ -258,5 +258,22 @@ runTest('action.yml fails closed on plan-generator errors and invalid fail-below
     'action.yml Threshold check must validate fail-below against the 0-100 integer regex');
 });
 
+runTest('agentlint fix without a check id fails fast with a product-level message', () => {
+  // Prior behavior: `agentlint fix --project-dir <repo>` piped
+  // scorer → plan-generator → fixer with no --checks or --items,
+  // which tripped fixer.js's "--items or --checks is required" throw
+  // and also emitted an EPIPE Node stack trace upstream. Option A:
+  // reject the no-check-id path fast with a clear message pointing
+  // to the correct usage.
+  const src = fs.readFileSync(path.join(ROOT, 'scripts', 'agentlint.sh'), 'utf8');
+  assert.match(src, /a check id is required/,
+    'agentlint.sh fix branch must emit a clear product-level message when no check id is supplied');
+  // Must not pipe into fixer.js without passing --checks or --items.
+  // The specific prior-buggy pattern was `fixer.js" "${path_args[@]}"` with
+  // no flag in between — reject it.
+  assert.doesNotMatch(src, /fixer\.js"\s+"\$\{path_args\[@\]\}"/,
+    'agentlint.sh must not invoke fixer.js without --checks or --items');
+});
+
 process.stdout.write(`${passed}/${total} tests passed\n`);
 process.exit(passed === total ? 0 : 1);
