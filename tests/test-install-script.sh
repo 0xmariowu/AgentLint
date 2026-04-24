@@ -54,7 +54,8 @@ done
 check "install.sh references agent-lint" "grep -q 'agent-lint' '$INSTALL'"
 
 # 7. Install script has old /hh comment (bug: should say /al)
-old_hh="$(grep -c '/hh' "$INSTALL" || echo 0)"
+old_hh="$(grep -c '/hh' "$INSTALL" 2>/dev/null || true)"
+old_hh="${old_hh:-0}"
 if [ "$old_hh" -gt 0 ]; then
   printf 'NOTE: install.sh still references /hh (should be /al)\n'
 fi
