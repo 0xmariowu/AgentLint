@@ -8,12 +8,13 @@
 
 | Method | Checks | Raw score rule |
 |---|---|---|
-| Binary pass/fail | `F1`, `F2`, `F3`, `F4`, `F5`, `F6`, `F7`, `F9`, `W1`, `W2`, `W3`, `W4`, `W5`, `W6`, `C2`, `C3`, `C4`, `C5`, `I5`, `I7`, `S1`, `S3`, `S4`, `S5`, `S6`, `S7`, `S8`, `H4`, `H6` | `1` if the condition is met, else `0`. |
+| Binary pass/fail | `F1`, `F2`, `F3`, `F4`, `F5`, `F6`, `F7`, `F9`, `W1`, `W2`, `W3`, `W4`, `W5`, `W6`, `W7`, `W8`, `W11`, `C2`, `C3`, `C4`, `C5`, `C6`, `I5`, `I7`, `S1`, `S3`, `S4`, `S5`, `S6`, `S7`, `S8`, `S9`, `H4`, `H6`, `H8` | `1` if the condition is met, else `0`. |
 | Upper-bound score | `I2`, `C1` | `1` when `measured <= reference`, else `reference / measured`. |
 | Average of upper-bound sub-scores | `I1` | Average of 4 keyword scores for `IMPORTANT`, `NEVER`, `MUST`, and `CRITICAL`, each using the upper-bound rule above. |
 | Ratio score | `I3`, `I4`, `F8`, `H1`, `H2`, `S2` | Measured ratio clamped to `0-1`. `I3` = Don't-with-Because / Don't-total; `I4` = action / (action + identity); `F8` = uses-globs / total-scoped; `H1` = valid-events / total-events; `H2` = with-matcher / total; `S2` = pinned / total. |
 | Range score | `I6`, `I8` | `1` inside the `[low, high]` reference range, `measured / low` below, `high / measured` above. |
-| Tiered score | `H3`, `H5` | Discrete levels: `H3` = `1` all Stop hooks guarded, `0.5` some unresolvable paths, `0` any unguarded; `H5` = `1` deny covers `.env` + variants or no `.env` deny, `0.5` `.env` denied but variants missing. |
+| Tiered score | `H3`, `H5`, `H7`, `W9`, `W10` | Discrete levels: `H3` = `1` all Stop hooks guarded, `0.5` some unresolvable paths, `0` any unguarded; `H5` = `1` deny covers `.env` + variants or no `.env` deny, `0.5` `.env` denied but variants missing; `H7` = `1` gate workflow blocks (exit 1), `0` warn-only; `W9` = `1` release.yml validates tag↔manifest version, `0.5` tag-only, `0` none; `W10` = `1` pyproject has 3+ pytest markers, `0` no Python project (N/A) or no markers. |
+| Extended (opt-in) | `D1`, `D2`, `D3`, `SS1`, `SS2`, `SS3`, `SS4` | Not emitted by `scanner.sh`. Produced by `deep-analyzer.js` + AI sub-agent (D1-D3) or `session-analyzer.js` reading local Claude Code session logs (SS1-SS4). `not_run` by default — see §3 and §4. |
 
 Notes:
 
@@ -73,21 +74,29 @@ opt-in boxes checked.
 | Deep | 5% (when run) | AI sub-agent (Claude Code skill) |
 | Session | 5% (when run) | Local Claude Code session logs at `~/.claude/projects/` |
 
-Check weights:
+Check weights (all 58 checks — source of truth is `standards/weights.json`):
 
 | ID | Weight | ID | Weight | ID | Weight | ID | Weight |
-|---|---:|---|---:|---|---:|---|---:|
+|----|-------:|----|-------:|----|-------:|----|-------:|
 | F1 | 3 | F2 | 1 | F3 | 2 | F4 | 1 |
 | F5 | 2 | F6 | 1 | F7 | 2 | F8 | 1 |
 | F9 | 2 | I1 | 1 | I2 | 2 | I3 | 2 |
 | I4 | 1 | I5 | 1 | I6 | 1 | I7 | 2 |
 | I8 | 1 | W1 | 3 | W2 | 1 | W3 | 2 |
-| W4 | 1 | W5 | 2 | W6 | 1 | C1 | 3 |
-| C2 | 2 | C3 | 1 | C4 | 1 | C5 | 1 |
-| S1 | 2 | S2 | 2 | S3 | 1 | S4 | 1 |
-| S5 | 1 | S6 | 3 | S7 | 1 | S8 | 1 |
-| H1 | 2 | H2 | 1 | H3 | 2 | H4 | 3 |
-| H5 | 1 | H6 | 1 | | | | |
+| W4 | 1 | W5 | 2 | W6 | 1 | W7 | 2 |
+| W8 | 1 | W9 | 2 | W10 | 2 | W11 | 2 |
+| C1 | 3 | C2 | 2 | C3 | 1 | C4 | 1 |
+| C5 | 1 | C6 | 1 | S1 | 2 | S2 | 2 |
+| S3 | 1 | S4 | 1 | S5 | 1 | S6 | 3 |
+| S7 | 1 | S8 | 1 | S9 | 2 | H1 | 2 |
+| H2 | 1 | H3 | 2 | H4 | 3 | H5 | 1 |
+| H6 | 1 | H7 | 2 | H8 | 1 | D1 | 1 |
+| D2 | 1 | D3 | 1 | SS1 | 1 | SS2 | 1 |
+| SS3 | 1 | SS4 | 1 | | | | |
+
+This table is kept in sync with `standards/weights.json` by
+`tests/test-surface-sync.js`. See `docs/content/checks.md` for each
+check's name, evidence, and fix guidance.
 
 ## 4. Total score and `score_scope`
 
