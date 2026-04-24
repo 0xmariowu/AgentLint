@@ -363,15 +363,28 @@ Respond with JSON only. Expected keys by check:
 File: {path}
 ```
 
-3. Save each subagent's JSON output to `$RUN_DIR/d{1,2,3}-ai.json`.
+3. Save each subagent's JSON output to **per-project** files so
+   multi-project runs don't stomp on each other. Use the project
+   basename `$P` (derived from `$P_DIR` at step 1) as a prefix:
 
-4. Convert each AI response to scorer-compatible JSONL:
+   `$RUN_DIR/${P}.d1-ai.json`, `$RUN_DIR/${P}.d2-ai.json`,
+   `$RUN_DIR/${P}.d3-ai.json`.
+
+   With N projects × 3 checks you get 3N files, not 3 shared ones.
+   This is required — a shared `d1-ai.json` would be overwritten by
+   every project after the first.
+
+4. Convert each AI response to scorer-compatible JSONL, passing
+   `$P` so the emitted records carry the right project:
 
 ```bash
-node "$AL_DIR/src/deep-analyzer.js" --format-result --project my-project --check D1 < $RUN_DIR/d1-ai.json >> $RUN_DIR/deep.jsonl
-node "$AL_DIR/src/deep-analyzer.js" --format-result --project my-project --check D2 < $RUN_DIR/d2-ai.json >> $RUN_DIR/deep.jsonl
-node "$AL_DIR/src/deep-analyzer.js" --format-result --project my-project --check D3 < $RUN_DIR/d3-ai.json >> $RUN_DIR/deep.jsonl
+node "$AL_DIR/src/deep-analyzer.js" --format-result --project "$P" --check D1 < "$RUN_DIR/${P}.d1-ai.json" >> "$RUN_DIR/deep.jsonl"
+node "$AL_DIR/src/deep-analyzer.js" --format-result --project "$P" --check D2 < "$RUN_DIR/${P}.d2-ai.json" >> "$RUN_DIR/deep.jsonl"
+node "$AL_DIR/src/deep-analyzer.js" --format-result --project "$P" --check D3 < "$RUN_DIR/${P}.d3-ai.json" >> "$RUN_DIR/deep.jsonl"
 ```
+
+`deep.jsonl` is append-only across all projects; the per-project
+`$P` in each line keeps findings distinguishable downstream.
 
 If AI output is malformed or missing the required key, `--format-result`
 exits non-zero — don't silently drop findings. Fix the prompt or retry
@@ -401,14 +414,16 @@ reports, or shared files. Pass `--include-raw-snippets` if you want to
 see the original text locally. Confirm with the user before enabling
 raw-snippet mode, especially if the report will leave their machine.
 
-After Step 4, before Step 5:
+This is **Step 3b**. Runs AFTER the core scan (Step 3), BEFORE the
+merge/score step (Step 3c). No scoring happens until `session.jsonl`
+(and any `deep.jsonl`) has been merged with `scan.jsonl` in Step 3c.
 
 ```bash
 node "$AL_DIR/src/session-analyzer.js" \
   --projects-root "$PROJECTS_ROOT" \
   --session-root ~/.claude/projects \
   --max-sessions 30 \
-  > $RUN_DIR/session.jsonl
+  > "$RUN_DIR/session.jsonl"
 ```
 
 If the user opted into raw snippets:
@@ -419,8 +434,12 @@ node "$AL_DIR/src/session-analyzer.js" \
   --session-root ~/.claude/projects \
   --max-sessions 30 \
   --include-raw-snippets \
-  > $RUN_DIR/session.jsonl
+  > "$RUN_DIR/session.jsonl"
 ```
+
+Do NOT invoke scorer or plan-generator from inside this section —
+Step 3c owns that merge + score + plan. Duplicating the call
+produces a competing scores.json.
 
 Present findings inline. With default redaction, the `instruction` and
 `rule` fields show `[redacted <N>ch #<hash>]` — the hash is stable, so
