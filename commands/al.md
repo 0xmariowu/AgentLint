@@ -144,11 +144,61 @@ Severity grouping logic (matches plan-generator.js `inferSeverity`):
 - 🟡 Medium: check score 0.5 - 0.7
 - ⚪ Low: check score 0.7 - 0.8
 
+### Step 5c: Select Project to Fix (if multi-project)
+
+`fixer.js` applies changes to a single project at a time. When the scan
+covered more than one project, pick exactly one repo for this fix run —
+users can re-run `/al` against other projects afterwards.
+
+```bash
+UNIQUE_PROJECTS="$(jq -r '.project' "$RUN_DIR/scan.jsonl" | sort -u)"
+PROJECT_COUNT="$(printf '%s\n' "$UNIQUE_PROJECTS" | grep -c .)"
+```
+
+If `PROJECT_COUNT` equals `1`: use that project automatically, set
+`SELECTED_PROJECT="$UNIQUE_PROJECTS"`, skip AskUserQuestion.
+
+If `PROJECT_COUNT` is greater than `1`: AskUserQuestion with the unique
+project list as options (one option per project basename, ordered by
+the number of findings attached to that project — most-findings first).
+Record the user's pick in `SELECTED_PROJECT`.
+
+Resolve `SELECTED_PROJECT` (a basename) back to its absolute path by
+re-scanning `PROJECTS_ROOT` for its `.git` directory. The scanner's
+discover logic uses `maxdepth 4`, so mirror that here:
+
+```bash
+PROJECT_DIR="$(find "$PROJECTS_ROOT" -maxdepth 4 -type d -name '.git' 2>/dev/null \
+  | while IFS= read -r gd; do \
+      p="$(dirname "$gd")"; \
+      [ "$(basename "$p")" = "$SELECTED_PROJECT" ] && printf '%s\n' "$p" && break; \
+    done | head -1)"
+if [ -z "$PROJECT_DIR" ]; then
+  echo "Error: cannot resolve project '$SELECTED_PROJECT' under '$PROJECTS_ROOT'" >&2
+  exit 1
+fi
+```
+
+Then narrow the plan to items that touch the selected project so
+`fixer.js` only sees work it can actually perform:
+
+```bash
+jq --arg p "$SELECTED_PROJECT" '
+  .grouped |= (
+    to_entries
+    | map(.value.items |= map(select(.projects | index($p))))
+    | from_entries
+  )
+' "$RUN_DIR/plan.json" > "$RUN_DIR/plan.filtered.json"
+```
+
 ### Step 6: Execute Fixes (no interaction)
 
-For selected items:
+Run fixer against the filtered plan + resolved project dir. `$PROJECT_DIR`
+must be set by Step 5c — never reference it before that step has run.
+
 ```bash
-node "$AL_DIR/src/fixer.js" --items "1,2,3" --project-dir "$PROJECT_DIR" < $RUN_DIR/plan.json
+node "$AL_DIR/src/fixer.js" --items "1,2,3" --project-dir "$PROJECT_DIR" < $RUN_DIR/plan.filtered.json
 ```
 
 Present results:
