@@ -328,5 +328,28 @@ runTest('agentlint doctor command exists and checks required deps', () => {
     'agentlint doctor must enforce Node 20+ (package.json engines contract)');
 });
 
+runTest('/al Deep/Session flow scores only after all selected analyzers run', () => {
+  // Previously Step 3 in commands/al.md ran scanner + scorer immediately,
+  // then Deep Analysis text said it runs "AFTER Step 3 and BEFORE Step 4
+  // (scoring)" — but Step 3 had already scored. Extended analyzers had
+  // no way to flip score_scope without re-scoring. Correct pipeline:
+  // Step 3 (scan-only) → Step 3b (optional Deep/Session) → Step 3c
+  // (merge all JSONL → score → plan) → Step 4 (present).
+  const src = fs.readFileSync(path.join(ROOT, 'commands', 'al.md'), 'utf8');
+  assert.match(src, /### Step 3: Core scan \(no interaction, no scoring yet\)/,
+    'Step 3 must be scan-only, explicitly deferring scoring');
+  assert.match(src, /### Step 3b: Extended analyzers/,
+    'Step 3b must conditionally run Deep/Session before scoring');
+  assert.match(src, /### Step 3c: Merge \+ score \+ plan/,
+    'Step 3c must do the merge + score + plan in one pass');
+  // Step 3 must NOT call scorer directly — that defeats the whole point.
+  const step3Body = src.slice(
+    src.indexOf('### Step 3: Core scan'),
+    src.indexOf('### Step 3b:'),
+  );
+  assert.doesNotMatch(step3Body, /node\s+"\$AL_DIR\/src\/scorer\.js"/,
+    'Step 3 must not invoke scorer.js — scoring belongs to Step 3c after analyzers have merged');
+});
+
 process.stdout.write(`${passed}/${total} tests passed\n`);
 process.exit(passed === total ? 0 : 1);
