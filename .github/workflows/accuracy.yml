@@ -29,20 +29,25 @@ jobs:
       - name: Download corpus tarball
         id: download
         run: |
-          if gh release download corpus-v1 \
+          # Fail closed if the corpus can't be downloaded. Previously this
+          # step emitted a warning and set found=false, causing every
+          # downstream step to skip — a missing corpus silently turned
+          # the whole accuracy gate into a green no-op. For a PR that
+          # touches scanner rules, "I couldn't check accuracy" must be
+          # an error, not a pass.
+          if ! gh release download corpus-v1 \
             --pattern 'corpus-full.tar.gz' \
             --dir /tmp \
             --repo ${{ github.repository }}; then
-            echo "found=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::Corpus tarball not found — skipping accuracy test"
-            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Corpus tarball not found at corpus-v1 release. " \
+              "Accuracy gate requires the corpus; either publish it or mark " \
+              "the PR as not-touching scanner rules." >&2
+            exit 1
           fi
         env:
           GH_TOKEN: ${{ github.token }}
 
       - name: Reconstruct repos
-        if: steps.download.outputs.found == 'true'
         run: |
           mkdir -p /tmp/corpus-raw /tmp/corpus-repos
           tar -xzf /tmp/corpus-full.tar.gz -C /tmp/corpus-raw
@@ -56,21 +61,83 @@ jobs:
           echo "Reconstructed $(find /tmp/corpus-repos -mindepth 1 -maxdepth 1 -type d | wc -l) repos"
 
       - name: Run scanner on all repos
-        if: steps.download.outputs.found == 'true'
         run: |
+          # Previously this loop wrapped scanner with `2>/dev/null || true`
+          # — scanner crashes (missing jq / evidence.json / invalid repo)
+          # became silent zero-result contributions. Accuracy compare then
+          # reported a score based on an incomplete sample. Now: capture
+          # per-repo stderr, count failures, and fail the step if more
+          # than 10% of the corpus fails to scan.
           RESULTS=/tmp/scanner-results.jsonl
+          FAILS=/tmp/scanner-failures.log
+          WORK_DIR="$(mktemp -d /tmp/scanner-work-XXXXXX)"
           : > "$RESULTS"
+          : > "$FAILS"
+          total=0
+          fails=0
+          PARALLEL=8
 
-          for repo_dir in /tmp/corpus-repos/*/; do
-            [ -d "$repo_dir" ] || continue
-            bash src/scanner.sh --project-dir "$repo_dir" >> "$RESULTS" 2>/dev/null || true
+          scan_one() {
+            local repo_dir="$1"
+            local name
+            local result_file
+            local fail_file
+            local err_file
+            local status
+
+            name="$(basename "$repo_dir")"
+            result_file="$WORK_DIR/$name.jsonl"
+            fail_file="$WORK_DIR/$name.fail"
+            err_file="$WORK_DIR/$name.stderr"
+
+            status=0
+            bash src/scanner.sh --project-dir "$repo_dir" \
+              > "$result_file" 2> "$err_file" || status=$?
+
+            if [ "$status" -ne 0 ]; then
+              {
+                echo "SCANNER FAILED: $repo_dir (exit=$status)"
+                if [ -s "$err_file" ]; then
+                  cat "$err_file"
+                fi
+              } > "$fail_file"
+            elif [ ! -s "$result_file" ]; then
+              echo "SCANNER EMPTY OUTPUT: $repo_dir" > "$fail_file"
+            fi
+          }
+          export -f scan_one
+          export WORK_DIR
+
+          total=$(find /tmp/corpus-repos -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+
+          find /tmp/corpus-repos -mindepth 1 -maxdepth 1 -type d -print0 | \
+            xargs -0 -P "$PARALLEL" -I{} bash -c 'scan_one "$1"' _ {}
+
+          shopt -s nullglob
+          for fail_file in "$WORK_DIR"/*.fail; do
+            fails=$((fails + 1))
+            cat "$fail_file" >> "$FAILS"
+            echo "" >> "$FAILS"
           done
+          for result_file in "$WORK_DIR"/*.jsonl; do
+            if [ -s "$result_file" ]; then
+              cat "$result_file" >> "$RESULTS"
+            fi
+          done
+          shopt -u nullglob
+
+          rm -rf "$WORK_DIR"
 
           lines=$(wc -l < "$RESULTS" | tr -d ' ')
-          echo "Scanner produced $lines result lines"
+          echo "Scanner produced $lines result lines across $total repos ($fails failures)"
+
+          if [ "$total" -gt 0 ] && [ "$((fails * 10))" -gt "$total" ]; then
+            echo "::error::Scanner failed on $fails/$total repos (>10%). " \
+              "See /tmp/scanner-failures.log (uploaded as artifact)." >&2
+            exit 1
+          fi
 
       - name: Compare with ground truth
-        if: steps.download.outputs.found == 'true'
         run: |
           node tests/accuracy/compare-results.js \
             /tmp/scanner-results.jsonl \
