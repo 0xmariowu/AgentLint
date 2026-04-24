@@ -160,5 +160,19 @@ runTest('accuracy compare-results.js derives ALL_CHECKS from evidence.json', () 
     'compare-results.js must not re-hardcode ALL_CHECKS — derive from evidence.json');
 });
 
+runTest('commands/al.md creates RUN_DIR parent before mktemp', () => {
+  // Without mkdir -p, mktemp -d fails on first /al invocation because
+  // ${CLAUDE_PLUGIN_DATA}/runs does not exist yet on a fresh plugin install.
+  const src = fs.readFileSync(path.join(ROOT, 'commands', 'al.md'), 'utf8');
+  const mkdirIdx = src.indexOf('mkdir -p "$RUN_ROOT"');
+  const mktempIdx = src.indexOf('mktemp -d "$RUN_ROOT');
+  assert.ok(mkdirIdx >= 0,
+    'commands/al.md must mkdir -p the RUN_ROOT parent directory');
+  assert.ok(mktempIdx >= 0,
+    'commands/al.md must create RUN_DIR via mktemp -d under RUN_ROOT');
+  assert.ok(mktempIdx > mkdirIdx,
+    'mktemp -d must appear AFTER mkdir -p so the parent exists first');
+});
+
 process.stdout.write(`${passed}/${total} tests passed\n`);
 process.exit(passed === total ? 0 : 1);
