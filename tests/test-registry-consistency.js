@@ -549,5 +549,49 @@ runTest('setup.sh --protect fails loudly and only claims protection when applied
     'setup.sh summary must gate the branch-protection bullet on PROTECT_APPLIED');
 });
 
+runTest('INSTALL.md exists and is the canonical install reference', () => {
+  // INSTALL.md is a top-level, AI-consumable install doc. README points to
+  // it for the full install matrix (npm / curl / ignore-scripts / corporate).
+  // If someone deletes it or relocates it, README links break silently.
+  const installPath = path.join(ROOT, 'INSTALL.md');
+  assert.ok(fs.existsSync(installPath),
+    'INSTALL.md must exist at repo root as the canonical install reference');
+  const install = fs.readFileSync(installPath, 'utf8');
+  assert.match(install, /npx agentlint-ai init/,
+    'INSTALL.md must document the recommended `npx agentlint-ai init` path');
+  assert.match(install, /--ignore-scripts/,
+    'INSTALL.md must document the no-side-effects `--ignore-scripts` path');
+});
+
+runTest('README recommends npx init path and links to INSTALL.md', () => {
+  // The recommended primary install command must be `npx agentlint-ai init`
+  // (explicit, UI-visible) rather than a bare `npx agentlint-ai` or plain
+  // `npm install -g` (npm 9+ silences postinstall stdout so the install UI
+  // is invisible on the latter).
+  const en = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  const cn = fs.readFileSync(path.join(ROOT, 'README_CN.md'), 'utf8');
+  assert.match(en, /npx agentlint-ai init/,
+    'README.md must recommend `npx agentlint-ai init` as the primary install path');
+  assert.match(cn, /npx agentlint-ai init/,
+    'README_CN.md must recommend `npx agentlint-ai init` as the primary install path');
+  assert.match(en, /INSTALL\.md/,
+    'README.md must link to INSTALL.md for the full install matrix');
+  assert.match(cn, /INSTALL\.md/,
+    'README_CN.md must link to INSTALL.md');
+});
+
+runTest('README documents the postinstall design choice (v1.x)', () => {
+  // The `npm install` → `~/.claude` side effect is a deliberate UX choice
+  // for v1.x. Reviewers flag it repeatedly. Keep the design note in the
+  // FAQ so the rationale + --ignore-scripts escape hatch is always one
+  // click away from README readers.
+  const en = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  const cn = fs.readFileSync(path.join(ROOT, 'README_CN.md'), 'utf8');
+  assert.match(en, /--ignore-scripts/,
+    'README.md must show the --ignore-scripts escape hatch for users who do not want the postinstall side effect');
+  assert.match(cn, /--ignore-scripts/,
+    'README_CN.md must show the --ignore-scripts escape hatch');
+});
+
 process.stdout.write(`${passed}/${total} tests passed\n`);
 process.exit(passed === total ? 0 : 1);
