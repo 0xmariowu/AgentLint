@@ -2077,6 +2077,10 @@ main() {
   # string from /al's saved config) still points at $HOME. Shell would
   # normally expand tilde only on word-level input, not in env-var strings,
   # so callers can easily hand us a literal "~" that `find` cannot walk.
+  # shellcheck disable=SC2088
+  # SC2088 flags `~/` in single quotes as "won't expand". Intentional —
+  # this is a literal-character match on the input string, not a tilde
+  # we want shell to expand. The expansion is `$HOME` on the right side.
   case "$projects_root" in
     '~')     projects_root="$HOME" ;;
     '~/'*)   projects_root="$HOME/${projects_root#'~/'}" ;;
