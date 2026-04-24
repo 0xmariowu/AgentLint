@@ -22,7 +22,7 @@
 >
 > Your `AGENTS.md`, `CLAUDE.md`, CI config, hooks, and `.gitignore` *are* the harness. When they're wrong, Claude Code, Cursor, and Codex ship AI slop. When they're right, agents compound.
 >
-> AgentLint scores your harness across **58 evidence-backed checks. 8 dimensions. Zero opinions.**
+> AgentLint scores your harness across **51 deterministic checks on 6 core dimensions**, plus **7 opt-in extended checks** (Deep + Session) that use AI sub-agents and local Claude Code session logs when available. Evidence-backed. Zero opinions.
 
 ## Install
 
@@ -42,7 +42,7 @@ Then start a new Claude Code session and run:
 /al
 ```
 
-That's it. AgentLint scans your repo, scores it across 8 dimensions, shows exactly what's wrong, and fixes what it can.
+That's it. AgentLint scans your repo, scores it across 6 core dimensions (plus 2 opt-in extended analyzers when available), shows exactly what's wrong, and fixes what it can.
 
 **No Claude Code?** The CLI works standalone:
 
@@ -57,7 +57,7 @@ agentlint setup --lang ts
 ```
 $ /al
 
-AgentLint — Score: 68/100
+AgentLint — Score: 72/100 (core)
 
 Findability      ██████████████░░░░░░  7/10
 Instructions     ████████████████░░░░  8/10
@@ -65,8 +65,8 @@ Workability      ████████████░░░░░░░░  6
 Safety           ██████████░░░░░░░░░░  5/10
 Continuity       ██████████████░░░░░░  7/10
 Harness          ████████████████████  10/10
-Deep             ░░░░░░░░░░░░░░░░░░░░  0/10
-Session          ████████████████████  10/10
+Deep             ░░░░░░░░░░░░░░░░░░░░  n/a   (opt-in)
+Session          ░░░░░░░░░░░░░░░░░░░░  n/a   (opt-in)
 
 Fix Plan (7 items):
   [guided]   Pin 8 GitHub Actions to SHA (supply chain risk)
@@ -117,7 +117,9 @@ If a check can't cite a source, it doesn't ship.
 
 ## What it checks
 
-58 checks across 8 dimensions, weighted by how much each one moves the needle.
+**58 checks total: 51 deterministic core checks across 6 dimensions (always run), plus 7 opt-in extended checks** (Deep: 3 AI-powered analysis checks; Session: 4 Claude Code log-reading checks). Default `agentlint check` and the GitHub Action only run the 51 core checks — the extended ones need AI sub-agents or local Claude Code session logs, so they're opt-in via `/al` inside Claude Code.
+
+The total score is averaged only over dimensions that actually ran. A default CI run shows `Score: NN/100 (core)` and marks Deep/Session as `n/a`, never as `0/10`. When extended checks do run, the header shows `(core+extended)`.
 
 ### 🔍 Findability — can AI find what it needs? *(20%)*
 
@@ -200,7 +202,7 @@ If a check can't cite a source, it doesn't ship.
 | H7 | Gate workflows are blocking | Warn-only CI gates are effectively disabled — agents merge despite failures |
 | H8 | Hook errors use structured format | `what/rule/fix` lets the agent self-correct; unstructured errors leave it stuck |
 
-### 🧠 Deep — AI-powered instruction analysis *(5%)*
+### 🧠 Deep — AI-powered instruction analysis *(opt-in, extended)*
 
 Spawns AI subagents to find what pattern-matching can't:
 
@@ -210,7 +212,7 @@ Spawns AI subagents to find what pattern-matching can't:
 | D2 | Dead-weight rules | Rules the model would follow anyway waste tokens and dilute priority |
 | D3 | Vague rules without decision boundary | "Use good judgment" gives the model nothing to evaluate against |
 
-### 📊 Session — learn from your Claude Code logs *(5%)*
+### 📊 Session — learn from your Claude Code logs *(opt-in, extended)*
 
 Reads your session history to surface patterns you'd never notice manually:
 
@@ -295,7 +297,7 @@ The term got popular in early 2026 (Mitchell Hashimoto, OpenAI, LangChain). Shor
 <details>
 <summary><strong>Why not just use <code>/init</code> and call it a day?</strong></summary>
 
-See the table above. `/init` writes a file; it doesn't audit your repo. AgentLint does 58 checks across 8 dimensions — and fixes what it finds.
+See the table above. `/init` writes a file; it doesn't audit your repo. AgentLint does 51 deterministic checks across 6 core dimensions (plus 7 opt-in extended checks) — and fixes what it finds.
 </details>
 
 <details>

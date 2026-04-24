@@ -43,7 +43,15 @@ dimension_raw = sum(check_score * check_weight) / sum(check_weight)
 dimension_score = round(dimension_raw * 10)
 ```
 
-Dimension weights and maxima:
+A dimension has a `status` of `run` or `not_run`. A dimension is `not_run`
+when **no checks for it were emitted by the scanner**; its `score` is then
+`null`, not `0`. This distinguishes "evidence gathered and scored 0" from
+"no evidence to score" and is the reason CI totals are honest.
+
+### Core dimensions
+
+These run by default from CLI, GitHub Action, and Claude Code `/al`. Their
+weights sum to 100%.
 
 | Dimension | Weight | Max |
 |---|---:|---:|
@@ -53,6 +61,17 @@ Dimension weights and maxima:
 | Continuity | 12% | 10 |
 | Safety | 15% | 10 |
 | Harness | 10% | 10 |
+
+### Extended dimensions (opt-in)
+
+These require runtime conditions CI cannot provide, so they are `not_run` by
+default. They only appear in the total when `/al` is used with the matching
+opt-in boxes checked.
+
+| Dimension | Weight | Runtime requirement |
+|---|---:|---|
+| Deep | 5% (when run) | AI sub-agent (Claude Code skill) |
+| Session | 5% (when run) | Local Claude Code session logs at `~/.claude/projects/` |
 
 Check weights:
 
@@ -70,16 +89,31 @@ Check weights:
 | H1 | 2 | H2 | 1 | H3 | 2 | H4 | 3 |
 | H5 | 1 | H6 | 1 | | | | |
 
-## 4. Total score
+## 4. Total score and `score_scope`
 
-The total score is the weighted average of normalized dimension scores, scaled to `100`:
+The total score is the weighted average of `run` dimension scores (skipping
+`not_run` entirely), scaled to `100`:
 
 ```text
-total_raw = sum((dimension_score / dimension_max) * dimension_weight) / sum(dimension_weight)
+total_raw = sum((dim.score / dim.max) * dim.weight)  // run dims only
+          / sum(dim.weight)                          // run dims only
 total_score = round(total_raw * 100)
 ```
 
-Because each dimension max is `10`, this is equivalent to weighting the six `0-10` dimension scores by the percentages above and converting the result to `0-100`.
+Not-run dimensions are skipped in both numerator and denominator. They are
+**never** treated as `0` — that would pull the total down every time Deep
+or Session doesn't run, which is almost always in CI.
+
+The scorer emits a companion field `score_scope`:
+
+| `score_scope` | Meaning |
+|---|---|
+| `core` | Total reflects the 6 core dimensions only (Deep and Session are both `not_run`). This is the default and the only value CI ever produces. |
+| `core+extended` | At least one extended dimension ran, so its weight and score are included in the total. |
+
+Consumers (terminal reporter, HTML, GitHub Action outputs) display the scope
+so that `89/100 (core)` and `89/100 (core+extended)` are clearly different
+statements, not comparable single numbers.
 
 ## 5. Reference values
 

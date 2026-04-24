@@ -22,7 +22,7 @@
 >
 > 你的 `AGENTS.md`、`CLAUDE.md`、CI 配置、hooks、`.gitignore` ——这些就是 harness。写错了，Claude Code、Cursor、Codex 交付的是 AI 垃圾。写对了，agent 会越来越强。
 >
-> AgentLint 用 **58 个有数据支撑的检查、8 个维度、零主观意见** 给你的 harness 打分。
+> AgentLint 用 **51 个确定性的核心检查（6 个核心维度）**，再加上 **7 个可选扩展检查**（Deep + Session，靠 AI 子 agent 和 Claude Code 本地日志跑），一共 58 项检查，全部有数据支撑、零主观意见。
 
 ## 安装
 
@@ -42,7 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/0xmariowu/agent-lint/main/scripts/i
 /al
 ```
 
-就这样。AgentLint 会扫描你的 repo，从 8 个维度打分，告诉你哪里有问题，能自动修的直接修。
+就这样。AgentLint 会扫描你的 repo，从 6 个核心维度打分（Deep / Session 两个扩展维度可选开启），告诉你哪里有问题，能自动修的直接修。
 
 **没有 Claude Code？** CLI 独立可用：
 
@@ -57,7 +57,7 @@ agentlint setup --lang ts
 ```
 $ /al
 
-AgentLint — Score: 68/100
+AgentLint — Score: 72/100 (core)
 
 Findability      ██████████████░░░░░░  7/10
 Instructions     ████████████████░░░░  8/10
@@ -65,8 +65,8 @@ Workability      ████████████░░░░░░░░  6
 Safety           ██████████░░░░░░░░░░  5/10
 Continuity       ██████████████░░░░░░  7/10
 Harness          ████████████████████  10/10
-Deep             ░░░░░░░░░░░░░░░░░░░░  0/10
-Session          ████████████████████  10/10
+Deep             ░░░░░░░░░░░░░░░░░░░░  n/a   (opt-in)
+Session          ░░░░░░░░░░░░░░░░░░░░  n/a   (opt-in)
 
 Fix Plan（7 项）：
   [guided]   将 8 个 GitHub Actions 固定到 SHA（供应链风险）
@@ -117,7 +117,9 @@ Fix Plan（7 项）：
 
 ## 检查项目
 
-58 项检查，8 个维度，按对实际效果的影响加权。
+**共 58 项检查：51 项核心检查（6 个核心维度，默认跑）+ 7 项扩展检查**（Deep 3 项 AI 分析 + Session 4 项日志读取，默认不跑）。`agentlint check` 和 GitHub Action 默认只跑 51 项核心检查——扩展检查需要 AI 子 agent 或 Claude Code 本地日志，只能在 Claude Code 里通过 `/al` 选 opt-in。
+
+总分只在实际跑过的维度里算平均。默认 CI 跑出来会显示 `Score: NN/100 (core)`，Deep/Session 标成 `n/a`，不会被当成 `0/10` 扣分。如果把扩展分析也跑了，头部会显示 `(core+extended)`。
 
 ### 🔍 Findability — AI 能找到它需要的吗？*(20%)*
 
@@ -200,7 +202,7 @@ Fix Plan（7 项）：
 | H7 | Gate 工作流是阻塞式的 | 仅警告的 CI gate 实际上相当于禁用——agent 依然合并失败的代码 |
 | H8 | Hook 错误使用结构化格式 | `what/rule/fix` 让 agent 自我纠正；非结构化错误让它卡住 |
 
-### 🧠 Deep — AI 驱动的指令分析 *(5%)*
+### 🧠 Deep — AI 驱动的指令分析 *(可选扩展)*
 
 生成 AI 子 agent 来发现模式匹配找不到的问题：
 
@@ -210,7 +212,7 @@ Fix Plan（7 项）：
 | D2 | 无效规则 | 模型本来就会遵循的规则浪费 token、稀释优先级 |
 | D3 | 没有决策边界的模糊规则 | "用好的判断力"给了模型没有任何可评估的依据 |
 
-### 📊 Session — 从 Claude Code 日志中学习 *(5%)*
+### 📊 Session — 从 Claude Code 日志中学习 *(可选扩展)*
 
 读取你的 session 历史，发现你自己不会注意到的规律：
 
@@ -295,7 +297,7 @@ claude plugin update agent-lint@agent-lint
 <details>
 <summary><strong>为什么不直接用 <code>/init</code> 了事？</strong></summary>
 
-见上面的对比表。`/init` 写文件；它不审计你的 repo。AgentLint 做 58 项检查，覆盖 8 个维度——并修复它发现的问题。
+见上面的对比表。`/init` 写文件；它不审计你的 repo。AgentLint 做 51 项核心检查（6 个核心维度）+ 7 项可选扩展检查——并修复它发现的问题。
 </details>
 
 <details>
