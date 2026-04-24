@@ -1,5 +1,13 @@
 # Check Reference
 
+Six **core** dimensions run by default (deterministic, no AI calls). Two
+**extended** dimensions (Deep and Session) require runtime conditions a CLI
+or CI run cannot provide and are opt-in via Claude Code `/al`. Every check
+below cites at least one evidence source — see `standards/evidence.json`
+for full citations.
+
+Total: 51 core checks + 7 extended checks = 58.
+
 ## Findability
 
 | ID | Name | What | Evidence | Fix |
@@ -35,8 +43,13 @@
 | W2 | CI exists | Checks whether the repo has GitHub Actions workflow files. | `harness-engineering` | Add CI workflows so key checks run mechanically. |
 | W3 | Tests exist and are non-empty | Checks whether the repo actually contains test files, not just test commands or empty CI. | `practical-audit` | Add real test files that exercise the project behavior. |
 | W4 | Linter configured | Checks whether a linter or formatter configuration is present. | `harness-engineering` | Configure a linter or formatter and keep it in the repo. |
-| W5 | No oversized source files | Checks whether any source file exceeds 256 KB (Claude Code hard read limit). | `anthropic-265` | Split large files or move generated content out of the source tree. |
+| W5 | No oversized source files | Checks whether any source file exceeds 256 KB (Claude Code hard read limit). Uses `git ls-files` in git repos so `.gitignore`'d artifacts (coverage, tmp, caches) never trigger false positives. | `anthropic-265` | Split large files or move generated content out of the source tree. |
 | W6 | Pre-commit hooks are fast | Estimates whether pre-commit hooks contain slow commands that would stall Claude Code commits. | `anthropic-265` | Remove slow commands from pre-commit hooks or move them to CI. |
+| W7 | Local fast test command documented | Checks whether the entry file documents a fast, local test command for the agent to run before pushing. | `anthropic-265` | Add a clear "run tests locally with: …" section to the entry file. |
+| W8 | npm test script exists | Checks whether JS/Node projects expose a `test` script in `package.json` so `npm test` works out of the box. | `anthropic-265` | Add `"test": "<your test runner>"` to `package.json` scripts. |
+| W9 | Release workflow validates version consistency | Checks whether `release.yml` cross-validates the git tag against `package.json` / `pyproject.toml` version. | `corpus-4533`, `vibekit-audit` | Compare the tag version against the manifest version in the release workflow and fail if they diverge. |
+| W10 | Test cost tiers defined | Checks whether Python projects define pytest markers (unit/integration/slow) so agents can run the fast tier by default. | `corpus-4533`, `vibekit-audit` | Add pytest markers in `pyproject.toml` and use them in CI. |
+| W11 | feat/fix commits paired with test commits | Checks whether the repo has a `.github/workflows/test-required.yml` that gates feat/fix PRs on paired test commits. | `vibekit-audit` | `agentlint fix W11` creates the template workflow. |
 
 ## Continuity
 
@@ -47,6 +60,7 @@
 | C3 | Changelog has why | Checks whether the repo has a non-empty `CHANGELOG.md` that records changes for future sessions. | `anthropic-265` | Keep a changelog with short entries that explain why something changed. |
 | C4 | Plans in repo | Checks whether plan directories exist in the repo, such as `docs/plans` or `plans`. | `harness-engineering` | Store execution plans in the repo instead of external tools only. |
 | C5 | CLAUDE.local.md not tracked | Checks whether `CLAUDE.local.md` is properly gitignored (not committed to git). | `anthropic-265` | Add `CLAUDE.local.md` to `.gitignore` — it contains per-user private preferences. |
+| C6 | HANDOFF.md contains verify conditions | Checks whether `HANDOFF.md` includes verify conditions (not just status text), so the next session can confirm readiness without re-running all checks. | `vibekit-audit` | Add a "verify" or "check" section to `HANDOFF.md` listing commands or files that confirm current state. |
 
 ## Safety
 
@@ -60,6 +74,7 @@
 | S6 | No hardcoded secrets | Scans source files for hardcoded API keys, tokens, and private key patterns. | `practical-audit` | Move secrets to environment variables or a secrets manager. |
 | S7 | No personal paths in source | Checks whether source files contain personal filesystem paths (`/Users/xxx/`, `/home/xxx/`). | `practical-audit`, `anthropic-265` | Replace personal paths with environment variables or relative paths. AI's Glob tool ignores .gitignore — personal paths are visible. |
 | S8 | No pull_request_target trigger | Checks whether workflows use `pull_request_target`, which runs with elevated permissions. | `practical-audit` | Use `pull_request` instead. Only use `pull_request_target` when secrets are explicitly needed. |
+| S9 | No personal email in git history | Checks whether commits in the default branch's history contain a personal email in the author/committer fields. | `corpus-4533` | Use a non-personal email for commits (e.g. GitHub's `noreply@` address) and scrub historical commits before publishing. |
 
 ## Harness
 
@@ -75,3 +90,30 @@ Evidence for all Harness checks comes from `corpus-4533`: analysis of 4,533 real
 | H4 | No dangerous auto-approve | Checks whether `permissions.allow` contains dangerous rules like bare `Bash(*)`, `*`, or `mcp__*`. | `corpus-4533` | Replace broad rules with scoped ones, e.g., `Bash(git status:*)` instead of `Bash(*)`. |
 | H5 | Env deny coverage complete | Checks whether `.env` deny rules cover `.env.*` variants. | `corpus-4533` | Extend deny rules to cover `.env.local`, `.env.production`, etc. |
 | H6 | Hook scripts network access | Detects hook scripts that make external network calls (curl, wget, fetch, etc.). | `corpus-4533` | Review flagged hooks — external network calls may leak tool I/O to third parties. |
+| H7 | Gate workflows are blocking | Checks whether `test-required` and similar gate workflows use `exit 1` (blocking) rather than warn-only output. | `corpus-4533` | Add `exit 1` to gate steps so failing tests block the merge instead of merely printing a warning. |
+| H8 | Hook errors use structured format | Checks whether hook error output uses a structured `what/rule/fix` shape so the agent can self-correct. | `vibekit-audit` | Emit hook errors with `Rule:` and `Fix:` lines so the agent knows what to do next. |
+
+## Deep (extended, opt-in)
+
+Deep checks run via Claude Code `/al` when "AI Deep Analysis" is selected.
+They spawn an AI sub-agent to read the entry file and flag problems plain
+pattern-matching cannot catch. They never run in CI.
+
+| ID | Name | What | Evidence | Fix |
+|---|---|---|---|---|
+| D1 | Contradictory rules | Finds pairs of rules in the entry file that tell the agent to do opposite things. | `anthropic-265` | Resolve the contradiction: keep one rule, delete or qualify the other. |
+| D2 | Dead-weight rules | Finds rules the model would follow anyway, which waste tokens and dilute priority. | `anthropic-265` | Delete rules that restate defaults. Keep only rules the model would otherwise get wrong. |
+| D3 | Vague rules without decision boundary | Finds instructions like "use good judgment" that give the model no evaluable criterion. | `anthropic-265`, `agent-readmes` | Rewrite vague rules into concrete triggers and thresholds. |
+
+## Session (extended, opt-in)
+
+Session checks read local Claude Code session logs at
+`~/.claude/projects/`. They run via `/al` when "Session Analysis" is
+selected. They never run in CI.
+
+| ID | Name | What | Evidence | Fix |
+|---|---|---|---|---|
+| SS1 | Repeated instructions | Surfaces instructions the user types every session — candidates for `CLAUDE.md`. | `claude-insights` | Move repeated instructions into the persistent entry file. |
+| SS2 | Ignored rules | Surfaces rules the agent keeps bypassing — candidates for rewriting. | `anthropic-265`, `claude-insights` | Rewrite ignored rules to be more specific, or add a precondition. |
+| SS3 | Friction hotspots | Surfaces projects and tasks that generate the most rework, based on session logs. | `claude-insights` | Invest in harness improvements for the noisiest projects first. |
+| SS4 | Missing rule suggestions | Surfaces common corrections that aren't captured in any rule file yet. | `claude-insights` | Capture the correction as a new rule in the entry file. |

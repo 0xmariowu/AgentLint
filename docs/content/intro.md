@@ -1,6 +1,6 @@
 # AgentLint
 
-**Your AI agent is only as good as your repo.** AgentLint finds what's broken — file structure, instruction quality, build setup, session continuity, security posture — and fixes it. 58 checks across 8 dimensions, every one backed by data. Works across Claude Code, Codex, Cursor, Copilot, Gemini CLI, Windsurf, and Cline.
+**Your AI agent is only as good as your repo.** AgentLint finds what's broken — file structure, instruction quality, build setup, session continuity, security posture — and fixes it. 51 deterministic core checks (6 dimensions) + 7 opt-in AI-native analyzers, every one backed by data. Works across Claude Code, Codex, Cursor, Copilot, Gemini CLI, Windsurf, and Cline.
 
 > We analyzed 265 versions of Anthropic's Claude Code system prompt, documented the hard limits, audited thousands of real repos, and reviewed the academic research. The result: a single command that tells you exactly what your AI agent is struggling with and why.
 
@@ -39,7 +39,7 @@ Once installed, you can also use AgentLint from any shell:
 
 ```bash
 agentlint setup --lang python ~/Projects/my-repo   # bootstrap CI/hooks/templates
-agentlint check --project-dir ~/Projects/my-repo   # diagnose (58 checks, 8 dimensions)
+agentlint check --project-dir ~/Projects/my-repo   # diagnose (51 core checks, 6 dimensions)
 agentlint fix   --project-dir ~/Projects/my-repo   # auto-fix issues found
 agentlint fix W11 --project-dir ~/Projects/my-repo # fix a specific check directly
 ```
@@ -108,7 +108,7 @@ If multiple entry files exist, priority order is CLAUDE.md → AGENTS.md → .cu
 ```
 $ /al
 
-AgentLint — Score: 68/100
+AgentLint — Score: 72/100 (core)
 
 Findability      ██████████████░░░░░░  7/10
 Instructions     ████████████████░░░░  8/10
@@ -116,6 +116,8 @@ Workability      ████████████░░░░░░░░  6
 Safety           ██████████░░░░░░░░░░  5/10
 Continuity       ██████████████░░░░░░  7/10
 Harness          ██████████████████░░  9/10
+Deep             ░░░░░░░░░░░░░░░░░░░░  n/a   (opt-in)
+Session          ░░░░░░░░░░░░░░░░░░░░  n/a   (opt-in)
 
 Fix Plan (7 items):
   [guided]   Pin 8 GitHub Actions to SHA (supply chain risk)
@@ -144,7 +146,11 @@ AgentLint is built on data most developers never see:
 
 ## How scoring works
 
-Each check produces a 0-1 score, weighted by dimension, scaled to 100.
+Each check produces a 0-1 score, weighted by dimension, scaled to 100. The total is averaged **only** over dimensions whose checks actually ran — dimensions with no evidence show `n/a`, not `0/10`, and don't drag the total down.
+
+### Core dimensions (always run)
+
+These 6 dimensions are evaluated by the deterministic scanner. They run in CLI, the GitHub Action, and Claude Code `/al` by default. The weights below sum to 100%.
 
 | Dimension | Weight | Why? |
 |-----------|--------|------|
@@ -154,6 +160,17 @@ Each check produces a 0-1 score, weighted by dimension, scaled to 100.
 | Safety | 15% | Is AI working without exposing secrets or triggering vulnerabilities? |
 | Continuity | 12% | Does knowledge survive across sessions? |
 | Harness | 10% | Are your Claude Code hooks/permissions actually configured correctly? |
+
+Default total line: `Score: NN/100 (core)`.
+
+### Extended dimensions (opt-in)
+
+These two require runtime conditions that CI and a plain CLI can't provide: Deep needs an AI sub-agent, Session needs local Claude Code logs. They are opt-in via Claude Code `/al`. When they run, the total header shows `(core+extended)` and includes their contributions.
+
+| Dimension | When it runs | What it adds |
+|-----------|--------------|--------------|
+| Deep | `/al` with "AI Deep Analysis" selected | Contradictions, dead-weight rules, vague decision boundaries |
+| Session | `/al` with "Session Analysis" selected | Patterns from your Claude Code session logs |
 
 Scores are measurements, not judgments. Reference values come from Anthropic's own data. You decide what to fix.
 
