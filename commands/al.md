@@ -16,17 +16,24 @@ AskUserQuestion with **defaults pre-selected** (user can press Enter to accept):
 ```
 AgentLint — which checks to run?
 
-☑ Findability — can AI find what it needs?
-☑ Instruction Quality — are your rules well-written?
-☑ Workability — can AI build and test?
-☑ Continuity — can next session pick up?
-☐ AI Deep Analysis — find contradictions, dead weight, vague rules
-☐ Session Analysis — discover issues from your usage history
+Core (deterministic, no AI calls) — default ON:
+  ☑ Findability         — can AI find what it needs?
+  ☑ Instruction Quality — are your rules well-written?
+  ☑ Workability         — can AI build and test?
+  ☑ Continuity          — can next session pick up?
+  ☑ Safety              — are secrets and CI locked down?
+  ☑ Harness             — are Claude Code hooks/permissions safe?
+
+Extended (opt-in, runtime-dependent):
+  ☐ Deep Analysis       — find contradictions, dead weight, vague rules (uses AI)
+  ☐ Session Analysis    — discover issues from your Claude Code session logs
 
 [Enter to run with defaults]
 ```
 
-**Default: first 4 checked.** User presses Enter → runs immediately.
+**Default: all 6 core dimensions.** Extended analyzers are optional and will
+show as `n/a` in the output unless explicitly checked. User presses Enter →
+runs immediately.
 
 ### Step 2: Init (first run only)
 
@@ -48,15 +55,22 @@ node "$AL_DIR/src/scorer.js" /tmp/al-scan.jsonl > /tmp/al-scores.json
 
 ### Step 4: Present Scores (no interaction)
 
-Read `/tmp/al-scores.json` and present:
+Read `/tmp/al-scores.json` and present. The `(core)` suffix on the total
+line appears when Deep/Session did not run — it signals that the score is
+averaged over the 6 core dimensions only. Extended dimensions that didn't
+run show as `n/a`, not `0/10`.
 
 ```
-🏥 AgentLint — Score: 78/100
+🏥 AgentLint — Score: 89/100 (core)
 
 Findability      ████████████████░░░░  8/10
 Instructions     ██████████████████░░  9/10
 Workability      ████████████░░░░░░░░  6/10
 Continuity       ██████████████░░░░░░  7/10
+Safety           ██████████████████░░  9/10
+Harness          ████████████████████  10/10
+Deep             ░░░░░░░░░░░░░░░░░░░░  n/a
+Session          ░░░░░░░░░░░░░░░░░░░░  n/a
 
 By Project:
   my-api                 9  ██████████████████░░
