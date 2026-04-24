@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 'use strict';
 
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
 const DEFAULT_PROJECTS_ROOT = process.env.PROJECTS_ROOT ? process.env.PROJECTS_ROOT : expandPath('~/Projects');
-const CLAUDE_PROJECTS_ROOT = expandPath('~/.claude/projects');
+// Session-root is resolved lazily inside run(); module-level resolution would
+// lock the analyzer to the developer's own ~/.claude/projects and break tests
+// that want to point at a fixture (tests pass HOME=fixture, but module-level
+// expandPath captures HOME at require time).
+const DEFAULT_SESSION_ROOT = '~/.claude/projects';
 const DEFAULT_MAX_SESSIONS = 30;
 const MIN_SUBSTRING_LEN = 20;
 const CORRECTION_PATTERNS = [
@@ -48,9 +53,16 @@ function expandPath(inputPath) {
 
 function usage() {
   const lines = [
-    'Usage: node src/session-analyzer.js [--projects-root PATH] [--max-sessions N]',
-    '  --projects-root PATH   Root path to search for CLAUDE.md / AGENTS.md files (default: ~/Projects)',
-    '  --max-sessions N       Most recent .jsonl session files to scan (default: 30)',
+    'Usage: node src/session-analyzer.js [options]',
+    '  --projects-root PATH      Root to discover CLAUDE.md/AGENTS.md (default: ~/Projects)',
+    '  --session-root PATH       Root to read session logs (default: ~/.claude/projects)',
+    '  --max-sessions N          Most recent .jsonl session files to scan (default: 30)',
+    '  --include-global          Emit global (unscoped) findings even when no matching',
+    '                            project is found. Default: skip global findings unless a',
+    '                            session matches at least one project in --projects-root.',
+    '  --include-raw-snippets    Include raw user-prompt fragments in output. Default:',
+    '                            redact to a short hash + length + occurrence count, so',
+    '                            analysis output is safe to paste into issues / reports.',
   ];
   process.stderr.write(lines.join('\n') + '\n');
 }
@@ -58,7 +70,10 @@ function usage() {
 function parseArgs(argv) {
   const options = {
     projectsRoot: DEFAULT_PROJECTS_ROOT,
+    sessionRoot: expandPath(DEFAULT_SESSION_ROOT),
     maxSessions: DEFAULT_MAX_SESSIONS,
+    includeGlobal: false,
+    includeRawSnippets: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -70,6 +85,16 @@ function parseArgs(argv) {
         throw new Error('Missing value for --projects-root');
       }
       options.projectsRoot = expandPath(next);
+      i += 1;
+      continue;
+    }
+    if (arg === '--session-root') {
+      const next = argv[i + 1];
+      if (!next) {
+        usage();
+        throw new Error('Missing value for --session-root');
+      }
+      options.sessionRoot = expandPath(next);
       i += 1;
       continue;
     }
@@ -88,6 +113,14 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
+    if (arg === '--include-global') {
+      options.includeGlobal = true;
+      continue;
+    }
+    if (arg === '--include-raw-snippets') {
+      options.includeRawSnippets = true;
+      continue;
+    }
     if (arg === '-h' || arg === '--help') {
       usage();
       process.exit(0);
@@ -97,6 +130,20 @@ function parseArgs(argv) {
   }
 
   return options;
+}
+
+// Redact a raw instruction/rule string for default output. The hash lets
+// downstream tools deduplicate occurrences across runs without exposing the
+// user's actual prompt. `--include-raw-snippets` bypasses this redaction when
+// a trusted operator wants the text (e.g. debugging locally).
+function redactSnippet(text) {
+  const str = String(text || '');
+  const hash = crypto.createHash('sha256').update(str).digest('hex').slice(0, 8);
+  return `[redacted ${str.length}ch #${hash}]`;
+}
+
+function displaySnippet(text, includeRaw) {
+  return includeRaw ? String(text || '') : redactSnippet(text);
 }
 
 function isJsonlSessionFile(fileName) {
@@ -234,8 +281,8 @@ function loadProjectCatalog(projectsRoot) {
   return catalog;
 }
 
-function projectFromSessionDir(filePath) {
-  const rel = path.relative(CLAUDE_PROJECTS_ROOT, filePath);
+function projectFromSessionDir(filePath, sessionRoot) {
+  const rel = path.relative(sessionRoot, filePath);
   const segments = rel.split(path.sep);
   return segments[0] || 'global';
 }
@@ -556,7 +603,7 @@ function buildClusters(records, minSubstringLen = MIN_SUBSTRING_LEN) {
   return clusters;
 }
 
-function buildS1Findings(sessions) {
+function buildS1Findings(sessions, options) {
   const records = [];
   for (const session of sessions) {
     for (const entry of session.entries) {
@@ -571,23 +618,27 @@ function buildS1Findings(sessions) {
   const clusters = buildClusters(records, MIN_SUBSTRING_LEN);
   clusters.sort((a, b) => b.sessions - a.sessions || b.count - a.count);
 
-  return clusters.map((cluster) => ({
-    project: 'global',
-    dimension: 'session',
-    check_id: 'SS1',
-    name: 'Repeated instructions',
-    measured_value: {
-      instruction: cluster.instruction,
-      count: cluster.count,
-      sessions: cluster.sessions,
-    },
-    score: 0,
-    detail: `You said '${cluster.instruction}' in ${cluster.sessions} sessions`,
-    evidence_id: 'SS1',
-  }));
+  const includeRaw = Boolean(options && options.includeRawSnippets);
+  return clusters.map((cluster) => {
+    const shown = displaySnippet(cluster.instruction, includeRaw);
+    return {
+      project: 'global',
+      dimension: 'session',
+      check_id: 'SS1',
+      name: 'Repeated instructions',
+      measured_value: {
+        instruction: shown,
+        count: cluster.count,
+        sessions: cluster.sessions,
+      },
+      score: 0,
+      detail: `Repeated instruction ${shown} seen in ${cluster.sessions} sessions (${cluster.count} times)`,
+      evidence_id: 'SS1',
+    };
+  });
 }
 
-function buildS4Findings(sessions) {
+function buildS4Findings(sessions, options) {
   const records = [];
   for (const session of sessions) {
     for (const entry of session.entries) {
@@ -603,18 +654,19 @@ function buildS4Findings(sessions) {
   const clusters = buildClusters(records, MIN_SUBSTRING_LEN);
   clusters.sort((a, b) => b.sessions - a.sessions || b.count - a.count);
 
+  const includeRaw = Boolean(options && options.includeRawSnippets);
   return clusters.map((cluster) => ({
     project: 'global',
     dimension: 'session',
     check_id: 'SS4',
     name: 'Missing rule suggestions',
     measured_value: {
-      suggested_rule: cluster.instruction,
+      suggested_rule: displaySnippet(cluster.instruction, includeRaw),
       count: cluster.count,
       sessions: cluster.sessions,
     },
     score: 0,
-    detail: `Suggested CLAUDE.md rule from repeated instruction: '${cluster.instruction}'`,
+    detail: `Suggested CLAUDE.md rule from repeated instruction ${displaySnippet(cluster.instruction, includeRaw)}`,
     evidence_id: 'SS4',
   }));
 }
@@ -637,8 +689,9 @@ function ruleMatchesContext(rule, context) {
   return false;
 }
 
-function buildS2Findings(sessions, catalog) {
+function buildS2Findings(sessions, catalog, options) {
   if (!catalog.length) return [];
+  const includeRaw = Boolean(options && options.includeRawSnippets);
 
   const hits = new Map();
 
@@ -673,20 +726,23 @@ function buildS2Findings(sessions, catalog) {
   return Array.from(hits.values())
     .filter((hit) => hit.count > 0)
     .sort((a, b) => b.sessions.size - a.sessions.size || b.count - a.count)
-    .map((hit) => ({
-      project: hit.project,
-      dimension: 'session',
-      check_id: 'SS2',
-      name: 'Ignored rules',
-      measured_value: {
-        rule: hit.rule,
-        violations: hit.count,
-        sessions: hit.sessions.size,
-      },
-      score: 0,
-      detail: `Potentially ignored rule in ${hit.project}: '${hit.rule}' (${hit.count} matching corrections in ${hit.sessions.size} sessions)`,
-      evidence_id: 'SS2',
-    }));
+    .map((hit) => {
+      const shownRule = displaySnippet(hit.rule, includeRaw);
+      return {
+        project: hit.project,
+        dimension: 'session',
+        check_id: 'SS2',
+        name: 'Ignored rules',
+        measured_value: {
+          rule: shownRule,
+          violations: hit.count,
+          sessions: hit.sessions.size,
+        },
+        score: 0,
+        detail: `Potentially ignored rule in ${hit.project}: ${shownRule} (${hit.count} matching corrections in ${hit.sessions.size} sessions)`,
+        evidence_id: 'SS2',
+      };
+    });
 }
 
 function buildS3Findings(sessions) {
@@ -738,20 +794,22 @@ function buildS3Findings(sessions) {
 async function run() {
   const options = parseArgs(process.argv.slice(2));
 
-  const sessionFiles = collectSessionFiles(CLAUDE_PROJECTS_ROOT, options.maxSessions);
+  const sessionFiles = collectSessionFiles(options.sessionRoot, options.maxSessions);
   if (!sessionFiles.length) {
     return;
   }
 
   const catalog = loadProjectCatalog(options.projectsRoot);
   const sessions = [];
+  let matchedAnyProject = false;
 
   for (const filePath of sessionFiles) {
     const entries = await parseSessionFile(filePath);
     if (!entries || !entries.length) continue;
 
-    const sessionProject = projectFromSessionDir(filePath);
+    const sessionProject = projectFromSessionDir(filePath, options.sessionRoot);
     const projectMapping = matchProjectFromCatalog(sessionProject, catalog);
+    if (projectMapping) matchedAnyProject = true;
     const friction = entries.reduce((count, entry) => {
       if (entry.role === 'user' && hasCorrection(entry.normalized)) return count + 1;
       return count;
@@ -766,11 +824,20 @@ async function run() {
     });
   }
 
+  // Privacy gate: when the catalog has no matching projects and the caller
+  // did not explicitly opt in via --include-global, emit nothing. This keeps
+  // test runs on clean checkouts (and ad-hoc invocations with empty
+  // --projects-root) from leaking the developer's own ~/.claude/projects
+  // text into shared artifacts.
+  if (!matchedAnyProject && !options.includeGlobal) {
+    return;
+  }
+
   const findings = [
-    ...buildS1Findings(sessions),
-    ...buildS2Findings(sessions, catalog),
+    ...buildS1Findings(sessions, options),
+    ...buildS2Findings(sessions, catalog, options),
     ...buildS3Findings(sessions),
-    ...buildS4Findings(sessions),
+    ...buildS4Findings(sessions, options),
   ];
 
   for (const record of findings) {
