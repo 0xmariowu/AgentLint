@@ -145,9 +145,9 @@ runTest('every check dimension is defined in weights.json', () => {
 });
 
 runTest('accuracy compare-results.js derives ALL_CHECKS from evidence.json', () => {
-  // Prevents the P0-5 footgun: a hardcoded ALL_CHECKS array that silently
-  // drifts from evidence.json. Must read evidence.json at runtime and filter
-  // to scope === "core" (extended dims come from other analyzers).
+  // Guard against a hardcoded ALL_CHECKS array that silently drifts from
+  // evidence.json. Must read evidence.json at runtime and filter to
+  // scope === "core" (extended dims come from other analyzers).
   const src = fs.readFileSync(
     path.join(ROOT, 'tests', 'accuracy', 'compare-results.js'),
     'utf8',
