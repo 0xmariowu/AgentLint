@@ -191,10 +191,12 @@ case "${1:-}" in
           path_args+=("$1")
           ;;
         *)
-          # Looks like a check ID (case-insensitive: w11, W11, S3, s3 all accepted)
+          # Looks like a check ID (case-insensitive: w11, W11, S3 all accepted).
+          # Also accept comma-separated lists like "W11,F5,S1" (documented in
+          # help + README). Each segment must match the check-ID shape.
           # Use `tr` for uppercase — `${1^^}` is Bash 4+ and fails on macOS Bash 3.2.
           upper="$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')"
-          if [[ "$upper" =~ ^[A-Z][A-Z0-9-]+$ ]]; then
+          if [[ "$upper" =~ ^[A-Z][A-Z0-9-]+(,[A-Z][A-Z0-9-]+)*$ ]]; then
             if [[ -n "$check_ids" ]]; then
               check_ids="${check_ids},$upper"
             else
@@ -341,7 +343,8 @@ Examples:
   agentlint check                              # current repo
   agentlint check --project-dir ~/Projects/my-repo
   agentlint check --all --projects-root ~/Projects
-  agentlint fix   --project-dir ~/Projects/my-repo
+  agentlint fix W11 --project-dir ~/Projects/my-repo
+  agentlint fix W11,F5,S1                      # comma-separated
 EOF
     ;;
   *)
