@@ -31,6 +31,18 @@ function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+// Render a short disambiguating suffix from a project_path so that
+// org1/app vs org2/app read differently in the By-Project table. Uses the
+// immediate parent dir when available; falls back to a path-tail sample.
+function formatProjectSuffix(projectPath) {
+  if (typeof projectPath !== 'string' || !projectPath) return '';
+  const parts = projectPath.replace(/\/+$/, '').split('/').filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`;
+  }
+  return parts[parts.length - 1] || projectPath;
+}
+
 function bar(score, max, width = 20) {
   if (score == null || !Number.isFinite(score)) {
     return '\u2591'.repeat(width);
@@ -57,10 +69,25 @@ function generateTerminalSummary(scores) {
   if (scores.by_project && Object.keys(scores.by_project).length > 1) {
     lines.push('');
     lines.push('  By Project:');
-    const projects = Object.entries(scores.by_project)
-      .map(([name, dims]) => {
+    // scorer now keys by_project on project_path (absolute); .project is the
+    // display basename. On basename collision across repos, disambiguate
+    // by appending a short suffix from the parent directory so the user
+    // sees org1/app and org2/app as distinct rows rather than one "app".
+    const entries = Object.entries(scores.by_project);
+    const basenameCounts = {};
+    for (const [, entry] of entries) {
+      const base = (entry && entry.project) || 'unknown';
+      basenameCounts[base] = (basenameCounts[base] || 0) + 1;
+    }
+    const projects = entries
+      .map(([key, entry]) => {
+        const base = (entry && entry.project) || key;
+        const display = basenameCounts[base] > 1 && entry && entry.project_path
+          ? `${base} (${formatProjectSuffix(entry.project_path)})`
+          : base;
         let total = 0, weightSum = 0;
-        for (const dim of Object.values(dims)) {
+        for (const [dimName, dim] of Object.entries(entry || {})) {
+          if (dimName === 'project' || dimName === 'project_path') continue;
           // Skip not_run dimensions — including them in the denominator would
           // drag the per-project score down even though no evidence was
           // gathered. Matches the contract in scorer.js calculateTotalScore.
@@ -69,7 +96,7 @@ function generateTerminalSummary(scores) {
           weightSum += dim.weight;
         }
         const score = weightSum > 0 ? Math.round(total / weightSum) : 0;
-        return { name, score };
+        return { name: display, score };
       })
       .sort((a, b) => b.score - a.score);
 
@@ -103,9 +130,15 @@ function generateMarkdownReport(scores, plan, date) {
   if (scores.by_project) {
     lines.push('## By Project');
     lines.push('');
-    for (const [project, projectDims] of Object.entries(scores.by_project)) {
-      lines.push(`### ${project}`);
-      for (const [dimName, dim] of Object.entries(projectDims)) {
+    for (const [key, entry] of Object.entries(scores.by_project)) {
+      // scorer keys by_project on project_path; use display basename in
+      // the heading and put the absolute path in a parenthetical so
+      // colliding-basename repos remain distinguishable.
+      const display = (entry && entry.project) || key;
+      const pathNote = entry && entry.project_path ? ` \`${entry.project_path}\`` : '';
+      lines.push(`### ${display}${pathNote}`);
+      for (const [dimName, dim] of Object.entries(entry || {})) {
+        if (dimName === 'project' || dimName === 'project_path') continue;
         const shown = dim.status === 'not_run' ? 'n/a' : `${dim.score}/${dim.max}`;
         lines.push(`**${dimName}**: ${shown}`);
         for (const check of dim.checks || []) {
@@ -134,12 +167,18 @@ function generateMarkdownReport(scores, plan, date) {
 
 function generateJsonl(scores, date) {
   const lines = [];
-  for (const [project, projectDims] of Object.entries(scores.by_project || {})) {
-    for (const [dimName, dim] of Object.entries(projectDims)) {
+  for (const [key, entry] of Object.entries(scores.by_project || {})) {
+    // Prefer display basename; fall back to the (path-shaped) key.
+    const project = (entry && entry.project) || key;
+    const projectPath = (entry && entry.project_path) || null;
+    for (const [dimName, dim] of Object.entries(entry || {})) {
+      if (dimName === 'project' || dimName === 'project_path') continue;
+      if (!dim || !Array.isArray(dim.checks)) continue;
       for (const check of dim.checks || []) {
         lines.push(JSON.stringify({
           date,
           project,
+          project_path: projectPath,
           dimension: dimName,
           check_id: check.check_id,
           name: check.name,
@@ -373,8 +412,11 @@ function generateSarif(scores, plan, opts) {
     }));
 
   const results = [];
-  for (const [project, projectDims] of Object.entries(scores.by_project || {})) {
-    for (const [dimension, dim] of Object.entries(projectDims || {})) {
+  for (const [key, entry] of Object.entries(scores.by_project || {})) {
+    const project = (entry && entry.project) || key;
+    for (const [dimension, dim] of Object.entries(entry || {})) {
+      if (dimension === 'project' || dimension === 'project_path') continue;
+      if (!dim || !Array.isArray(dim.checks)) continue;
       for (const check of dim.checks || []) {
         if (!includeAll && check.score >= 0.8) continue;
 
@@ -455,14 +497,20 @@ function generateHtmlReport(scores, beforeScores, plan, date) {
     alVersion = pkg.version || '';
   } catch (_) { /* ignore */ }
 
-  // Collect checks grouped by dimension
+  // Collect checks grouped by dimension. by_project entries now carry
+  // `project` + `project_path` metadata alongside dimension maps, so
+  // skip the metadata keys when iterating dimensions, and prefer the
+  // entry's own `.project` (display name) over the (path-shaped) key.
   const checksByDim = {};
   const projectCount = Object.keys(scores.by_project || {}).length;
-  for (const [project, pd] of Object.entries(scores.by_project || {})) {
-    for (const [dimName, dim] of Object.entries(pd)) {
+  for (const [key, entry] of Object.entries(scores.by_project || {})) {
+    const displayProject = (entry && entry.project) || key;
+    for (const [dimName, dim] of Object.entries(entry || {})) {
+      if (dimName === 'project' || dimName === 'project_path') continue;
+      if (!dim) continue;
       if (!checksByDim[dimName]) checksByDim[dimName] = [];
       for (const check of dim.checks || []) {
-        checksByDim[dimName].push({ project, ...check });
+        checksByDim[dimName].push({ project: displayProject, ...check });
       }
     }
   }
@@ -470,10 +518,13 @@ function generateHtmlReport(scores, beforeScores, plan, date) {
   // Compare with before to detect fixed/improved
   if (hasBefore && beforeScores.by_project) {
     const beforeMap = {};
-    for (const [project, pd] of Object.entries(beforeScores.by_project)) {
-      for (const dim of Object.values(pd)) {
+    for (const [beforeKey, beforeEntry] of Object.entries(beforeScores.by_project)) {
+      const displayProject = (beforeEntry && beforeEntry.project) || beforeKey;
+      for (const [dimName, dim] of Object.entries(beforeEntry || {})) {
+        if (dimName === 'project' || dimName === 'project_path') continue;
+        if (!dim || !Array.isArray(dim.checks)) continue;
         for (const check of dim.checks || []) {
-          beforeMap[`${project}:${check.check_id}`] = check.score;
+          beforeMap[`${displayProject}:${check.check_id}`] = check.score;
         }
       }
     }

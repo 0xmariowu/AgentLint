@@ -185,6 +185,12 @@ function buildRecord(raw, thresholds, dimensionsConfig) {
 
   return {
     project: normalizeProject(raw.project || raw.project_name || raw.projectId || raw.repo || raw.repository),
+    // Carry project_path through so the downstream bucketing can key on
+    // absolute path — basename alone collides when two repos share a
+    // directory name (e.g. org1/app + org2/app).
+    project_path: typeof raw.project_path === 'string' && raw.project_path.trim()
+      ? raw.project_path.trim()
+      : null,
     check_id: checkId,
     dimension,
     name: raw.name || raw.title || raw.check_name || null,
@@ -199,11 +205,23 @@ function buildRecord(raw, thresholds, dimensionsConfig) {
 function mergeRecord(targets, record, checkWeights, dimensionsConfig, thresholds) {
   addCheckContribution(targets.global, record, checkWeights, dimensionsConfig, thresholds);
 
-  const project = record.project;
-  if (!targets.byProject[project]) {
-    targets.byProject[project] = initDimensionState(dimensionsConfig);
+  // Bucket by project_path, not by basename. Two repos with the same
+  // basename under different parent dirs (e.g. org1/app + org2/app) used
+  // to collide into one `byProject[app]` entry — their findings got
+  // averaged and the per-project report lost half the data. Fall back to
+  // basename only for records that don't carry a path (extended
+  // analyzers today; deep.jsonl / session.jsonl for dimension-scoped
+  // records). We key the displayed entry by basename and record
+  // project_path for downstream consumers that need to disambiguate.
+  const pathKey = record.project_path || record.project || 'unknown';
+  if (!targets.byProject[pathKey]) {
+    targets.byProject[pathKey] = {
+      state: initDimensionState(dimensionsConfig),
+      project: record.project || null,
+      project_path: record.project_path || null,
+    };
   }
-  addCheckContribution(targets.byProject[project], record, checkWeights, dimensionsConfig, thresholds);
+  addCheckContribution(targets.byProject[pathKey].state, record, checkWeights, dimensionsConfig, thresholds);
 }
 
 async function run() {
@@ -269,9 +287,16 @@ async function run() {
 
   const dimensions = finalizeDimensions(globalState, dimensionsConfig);
 
+  // Output by_project keyed by project_path (unique even on basename
+  // collisions). Each entry carries display-friendly `project` (basename)
+  // plus the absolute `project_path` for fix-path resolution.
   const by_project = {};
-  for (const [project, projectState] of Object.entries(byProject)) {
-    by_project[project] = finalizeDimensions(projectState, dimensionsConfig);
+  for (const [pathKey, bucket] of Object.entries(byProject)) {
+    by_project[pathKey] = {
+      project: bucket.project,
+      project_path: bucket.project_path,
+      ...finalizeDimensions(bucket.state, dimensionsConfig),
+    };
   }
 
   const result = {
