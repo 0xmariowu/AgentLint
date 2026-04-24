@@ -160,6 +160,22 @@ runTest('accuracy compare-results.js derives ALL_CHECKS from evidence.json', () 
     'compare-results.js must not re-hardcode ALL_CHECKS — derive from evidence.json');
 });
 
+runTest('README "is my code sent" FAQ does not overclaim local-only', () => {
+  // Prior wording answered "No. AgentLint runs locally." flat-out, which is
+  // inaccurate: Deep (opt-in) sends selected entry files to a Claude
+  // sub-agent. The FAQ must describe the mode-dependent data flow instead.
+  const en = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  const cn = fs.readFileSync(path.join(ROOT, 'README_CN.md'), 'utf8');
+  assert.doesNotMatch(en, /No\. AgentLint runs locally\./,
+    'README must not re-introduce "No. AgentLint runs locally" — Deep opt-in sends files off-machine');
+  assert.doesNotMatch(cn, /不会。AgentLint 在本地运行/,
+    'README_CN must not re-introduce "不会。AgentLint 在本地运行" — Deep opt-in sends files off-machine');
+  assert.match(en, /Deep[\s\S]{0,500}sub-agent/i,
+    'README must describe Deep sub-agent data flow near the "Is my code sent anywhere" FAQ');
+  assert.match(cn, /Deep[\s\S]{0,500}sub-agent/i,
+    'README_CN must describe Deep sub-agent data flow near the same FAQ');
+});
+
 runTest('commands/al.md creates RUN_DIR parent before mktemp', () => {
   // Without mkdir -p, mktemp -d fails on first /al invocation because
   // ${CLAUDE_PLUGIN_DATA}/runs does not exist yet on a fresh plugin install.

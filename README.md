@@ -309,7 +309,17 @@ Today AgentLint runs *inside* Claude Code, but the checks apply to repo assets e
 <details>
 <summary><strong>Is my code sent anywhere?</strong></summary>
 
-No. AgentLint runs locally. The only outbound traffic is whatever Claude Code itself does.
+It depends on which mode you run. The default (`agentlint check` and the GitHub Action) is local-only and runs zero AI. The two opt-in extended modes do touch AI or local session logs — we spell it out so there's no surprise:
+
+| Mode | Data accessed | Network / AI |
+|------|---------------|--------------|
+| `agentlint check` (default) | files in the repo being scanned | **Local only, no AI** |
+| GitHub Action | files in the checked-out repo inside the runner | **Local only, no AI** |
+| `/al` (core dims only) | git repos under the configured `PROJECTS_ROOT` | **Local only, no AI** |
+| `/al` with Deep (opt-in) | selected entry files (e.g. `CLAUDE.md`) | **Sends file contents to a Claude sub-agent** |
+| `/al` with Session (opt-in) | `~/.claude/projects/` logs on your machine | Local analyzer. Output is redacted by default; raw snippets require `--include-raw-snippets` |
+
+Deep is the only mode that transmits file contents off your machine, and it only runs when you explicitly ask for it inside Claude Code. Everything the default scan produces — the `Score: NN/100 (core)` output, the JSONL, the SARIF, the GitHub Action annotations — comes from pattern checks on disk, no API calls.
 </details>
 
 <details>
