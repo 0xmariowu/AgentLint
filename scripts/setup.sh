@@ -13,18 +13,29 @@ die()  { printf "${RED}error:${NC} %s\n" "$*" >&2; exit 1; }
 info() { printf "${GREEN}✓${NC} %s\n" "$*"; }
 warn() { printf "${YELLOW}!${NC} %s\n" "$*"; }
 
+# Fail clearly when a flag is missing its value. `set -euo pipefail` alone
+# would trip on `$2: unbound variable` — a confusing shell-level error for
+# a user-level mistake. Takes the flag name (for the message) and the
+# candidate value (pass `${2-}` so unset doesn't blow up on the caller side).
+require_value() {
+  local flag="$1"
+  local value="${2-}"
+  [[ -n "$value" ]] || die "agentlint setup: $flag requires a value"
+}
+
 # --- Parse args ---
 LANG=""; RUNNER=""; WORKFLOWS_ONLY=false; PROTECT=false; VISIBILITY="private"; PROJECT=""
-PKG_MANAGER_OVERRIDE=""; NO_INSTALL=false
+PKG_MANAGER_OVERRIDE=""; NO_INSTALL=false; FORCE=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --lang)           LANG="$2"; shift 2 ;;
-    --runner)         RUNNER="$2"; shift 2 ;;
+    --lang)           require_value --lang "${2-}"; LANG="$2"; shift 2 ;;
+    --runner)         require_value --runner "${2-}"; RUNNER="$2"; shift 2 ;;
     --workflows-only) WORKFLOWS_ONLY=true; shift ;;
     --protect)        PROTECT=true; shift ;;
-    --visibility)     VISIBILITY="$2"; shift 2 ;;
-    --pkg-manager)    PKG_MANAGER_OVERRIDE="$2"; shift 2 ;;
+    --visibility)     require_value --visibility "${2-}"; VISIBILITY="$2"; shift 2 ;;
+    --pkg-manager)    require_value --pkg-manager "${2-}"; PKG_MANAGER_OVERRIDE="$2"; shift 2 ;;
     --no-install)     NO_INSTALL=true; shift ;;
+    --force)          FORCE=true; shift ;;
     -*)               die "unknown flag: $1" ;;
     *)                PROJECT="$1"; shift ;;
   esac
@@ -36,7 +47,7 @@ done
 # future hook that wants to read it without another parser pass.
 export RUNNER
 
-[[ -z "$LANG" ]] && die "usage: bootstrap.sh --lang <ts|python|node> [--runner bun] [--visibility public|private] [--workflows-only] [--protect] [--pkg-manager <auto|npm|pnpm|yarn|bun>] [--no-install] <project-path>"
+[[ -z "$LANG" ]] && die "usage: bootstrap.sh --lang <ts|python|node> [--runner bun] [--visibility public|private] [--workflows-only] [--protect] [--pkg-manager <auto|npm|pnpm|yarn|bun>] [--no-install] [--force] <project-path>"
 [[ -z "$PROJECT" ]] && die "project path required"
 [[ "$LANG" != "ts" && "$LANG" != "python" && "$LANG" != "node" ]] && die "lang must be 'ts', 'python', or 'node'"
 [[ "$VISIBILITY" != "public" && "$VISIBILITY" != "private" ]] && die "--visibility must be 'public' or 'private'"
@@ -307,15 +318,34 @@ if [[ "$WORKFLOWS_ONLY" == true ]]; then
 fi
 
 # --- 2. GitHub config (CODEOWNERS, PR template, issue templates, SECURITY.md, doc templates) ---
-cp "$TEMPLATE_DIR/configs/github/CODEOWNERS" "$PROJECT/.github/CODEOWNERS"
-info ".github/CODEOWNERS"
+# Non-destructive by default: skip files that already exist. `--force` overwrites.
+# Rationale: setup is high-trust, it writes into user repositories. Overwriting
+# a project's CODEOWNERS or PR template without opt-in is a silent scope creep.
+copy_guarded() {
+  local src="$1" dest="$2" label="$3"
+  if [[ -f "$dest" && "$FORCE" != true ]]; then
+    info "$label exists, skipping (use --force to overwrite)"
+    return 0
+  fi
+  cp "$src" "$dest"
+  info "$label"
+}
 
-cp "$TEMPLATE_DIR/configs/github/pull_request_template.md" "$PROJECT/.github/pull_request_template.md"
-info ".github/pull_request_template.md"
+copy_guarded "$TEMPLATE_DIR/configs/github/CODEOWNERS" \
+             "$PROJECT/.github/CODEOWNERS" \
+             ".github/CODEOWNERS"
+
+copy_guarded "$TEMPLATE_DIR/configs/github/pull_request_template.md" \
+             "$PROJECT/.github/pull_request_template.md" \
+             ".github/pull_request_template.md"
 
 mkdir -p "$PROJECT/.github/ISSUE_TEMPLATE"
 for f in "$TEMPLATE_DIR/configs/github/ISSUE_TEMPLATE/"*; do
   dest="$PROJECT/.github/ISSUE_TEMPLATE/$(basename "$f")"
+  if [[ -f "$dest" && "$FORCE" != true ]]; then
+    info ".github/ISSUE_TEMPLATE/$(basename "$f") exists, skipping (use --force to overwrite)"
+    continue
+  fi
   cp "$f" "$dest"
   instantiate_placeholders "$dest"
   info ".github/ISSUE_TEMPLATE/$(basename "$f")"
