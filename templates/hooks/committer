@@ -101,7 +101,7 @@ fi
   "commit message cannot be empty" \
   "conventional-commit format requires a non-empty subject" \
   'scripts/committer "feat: <description>" <file>...' \
-  "commitlint.config.cjs · docs/rules-style.md §3.1"
+  "commitlint.config.{js,cjs} · docs/internal/rules-style.md §3.1"
 
 # Guard against swapped args: single word with file-like extension
 if [[ "$MSG" != *" "* ]] && [[ "$MSG" =~ \.(ts|js|md|json|sh)$ || "$MSG" == */* ]]; then
