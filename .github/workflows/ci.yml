@@ -39,6 +39,9 @@ jobs:
           shellcheck -S warning src/scanner.sh scripts/*.sh
           shellcheck -S warning -e SC2329 tests/*.sh
 
+      - name: Run sanitize.sh
+        run: bash scripts/sanitize.sh
+
       - name: Check JavaScript syntax
         run: find src -name '*.js' -print0 | xargs -0 -n1 node --check
 

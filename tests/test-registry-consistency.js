@@ -1572,6 +1572,27 @@ runTest('CI workflows do not expose secret diagnostics or token introspection', 
   }
 });
 
+runTest('CI lint job runs scripts/sanitize.sh as a required gate', () => {
+  // Without this gate, sanitize.sh failures (private-pattern leaks,
+  // unsanitized example hostnames) silently land in main. PR5 added
+  // the gate; this test ensures it doesn't drift out.
+  const ciYml = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
+  assert.match(ciYml, /bash\s+scripts\/sanitize\.sh/,
+    'ci.yml must run scripts/sanitize.sh as a step (added by PR5 / P0-4 gate)');
+});
+
+runTest('tests/fixer-safety/results does not contain zero-byte files', () => {
+  const dir = path.join(ROOT, 'tests', 'fixer-safety', 'results');
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir)) {
+    if (entry === '.gitkeep') continue;
+    const full = path.join(dir, entry);
+    if (fs.statSync(full).size === 0) {
+      assert.fail(`Zero-byte fixture ${entry} should not be tracked. Either generate real content or .gitignore the directory.`);
+    }
+  }
+});
+
 runTest('shipped templates do not reference missing files or VibeKit identity', () => {
   const PROHIBITED_PATTERNS = [
     /\bbootstrap\.sh\b/,                        // legacy filename, replaced by agentlint setup

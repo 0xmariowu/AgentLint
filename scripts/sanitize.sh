@@ -3,6 +3,12 @@
 # sanitize.sh — pre-release PII audit
 # Usage: scripts/sanitize.sh [--repo <path>]
 # Read-only: reports what needs cleaning, does NOT modify git history.
+#
+# Machine-hostname scan allowlist:
+#   SANITIZE_ALLOWLIST_FILES contains tracked files whose hostname-looking text
+#   is intentional documentation of the scanner patterns. Keep this path-based;
+#   do not allowlist literal hostnames globally or real leaks in other files
+#   will be hidden.
 
 set -euo pipefail
 
@@ -18,7 +24,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ ! -d "$REPO/.git" ]] && { printf "${RED}error:${NC} not a git repo: %s\n" "$REPO" >&2; exit 1; }
+git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 || {
+  printf "${RED}error:${NC} not a git repo: %s\n" "$REPO" >&2
+  exit 1
+}
 REPO="$(cd "$REPO" && pwd)"
 REPO_NAME="$(basename "$REPO")"
 INTERNAL_CODENAMES_FILE="$REPO/.internal-codenames"
@@ -30,6 +39,19 @@ PLACEHOLDER_FILTER='/Users/xxx|/home/xxx|/home/testuser|/Users/yourusername|/Use
 # File patterns that legitimately contain '.local' (config filenames, not
 # hostnames). Mirrors agent-lint's tracked content.
 LOCAL_FILE_ALLOWLIST='CLAUDE\.local\.md|\.env\.local|\.ship-boundary-deny\.local|CLAUDE\.LOCAL\.md'
+
+SANITIZE_ALLOWLIST_FILES=(
+  "templates/configs/privacy-taxonomy.md"
+)
+
+sanitize_is_allowlisted_file() {
+  local file="$1"
+  local allowlisted_file
+  for allowlisted_file in "${SANITIZE_ALLOWLIST_FILES[@]}"; do
+    [[ "$file" == "$allowlisted_file" ]] && return 0
+  done
+  return 1
+}
 
 printf "\n${BOLD}PII Audit: ${REPO_NAME}${NC}\n"
 printf "${DIM}%s${NC}\n\n" "$REPO"
@@ -87,9 +109,11 @@ echo
 printf "${BOLD}3. Machine hostnames (Tailscale, mDNS) in tracked files${NC}\n"
 HOST_HITS=""
 if [[ -n "$TRACKED_FILES" ]]; then
-  HOST_HITS=$(printf '%s\n' "$TRACKED_FILES" \
-    | grep -vE '\.gitleaks\.toml$' \
-    | xargs -I{} grep -nHE '[a-zA-Z0-9][a-zA-Z0-9-]*\.ts\.net|[a-zA-Z][a-zA-Z0-9-]*\.local\b' "$REPO/{}" 2>/dev/null \
+  HOST_HITS=$(while IFS= read -r file; do
+      [[ "$file" == *.gitleaks.toml ]] && continue
+      sanitize_is_allowlisted_file "$file" && continue
+      grep -nHE '[a-zA-Z0-9][a-zA-Z0-9-]*\.ts\.net|[a-zA-Z][a-zA-Z0-9-]*\.local\b' "$REPO/$file" 2>/dev/null || true
+    done <<< "$TRACKED_FILES" \
     | grep -vE "$LOCAL_FILE_ALLOWLIST" | head -20 || true)
 fi
 
