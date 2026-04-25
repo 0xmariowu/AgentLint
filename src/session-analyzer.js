@@ -711,6 +711,9 @@ function buildS4Findings(sessions, options) {
       records.push({
         sessionId: session.id,
         text: entry.text,
+        project: session.project,
+        project_path: session.project_path,
+        project_entry: session.project_entry,
       });
     }
   }
@@ -719,20 +722,44 @@ function buildS4Findings(sessions, options) {
   clusters.sort((a, b) => b.sessions - a.sessions || b.count - a.count);
 
   const includeRaw = Boolean(options && options.includeRawSnippets);
-  return clusters.map((cluster) => ({
-    project: 'global',
-    dimension: 'session',
-    check_id: 'SS4',
-    name: 'Missing rule suggestions',
-    measured_value: {
-      suggested_rule: displaySnippet(cluster.instruction, includeRaw),
-      count: cluster.count,
-      sessions: cluster.sessions,
-    },
-    score: 0,
-    detail: `Suggested CLAUDE.md rule from repeated instruction ${displaySnippet(cluster.instruction, includeRaw)}`,
-    evidence_id: 'SS4',
-  }));
+  return clusters.map((cluster) => {
+    let project = null;
+    let projectPath = null;
+
+    for (const rec of cluster.records) {
+      if (!rec.project_path) {
+        project = null;
+        projectPath = null;
+        break;
+      }
+      if (projectPath === null) {
+        projectPath = rec.project_path;
+        project = rec.project || null;
+        continue;
+      }
+      if (projectPath !== rec.project_path) {
+        project = null;
+        projectPath = null;
+        break;
+      }
+    }
+
+    return {
+      project,
+      project_path: projectPath,
+      dimension: 'session',
+      check_id: 'SS4',
+      name: 'Missing rule suggestions',
+      measured_value: {
+        suggested_rule: displaySnippet(cluster.instruction, includeRaw),
+        count: cluster.count,
+        sessions: cluster.sessions,
+      },
+      score: 0,
+      detail: `Suggested CLAUDE.md rule from repeated instruction ${displaySnippet(cluster.instruction, includeRaw)}`,
+      evidence_id: 'SS4',
+    };
+  });
 }
 
 function ruleMatchesContext(rule, context) {
