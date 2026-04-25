@@ -22,13 +22,30 @@ Success signal: `agentlint --version` prints a version string.
 
 ## GitHub Action
 
+Complete copy-paste workflow:
+
 ```yaml
-- uses: 0xmariowu/AgentLint@v1
-  with:
-    fail-below: 80
+name: AgentLint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  agentlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: 0xmariowu/AgentLint@v1
+        with:
+          fail-below: 80
 ```
 
-`@v1` is a moving major-version tag. Pin to a specific release (e.g. `@v1.1.5`) if you need reproducibility.
+`@v1` is a moving major-version tag. Pin to a specific release (e.g. `@v1.1.5`) if you need reproducibility. The `actions/checkout@v4` step is required — without it, AgentLint scans an empty workspace.
 
 ## After install
 
