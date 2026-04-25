@@ -2,6 +2,10 @@
 
 > **For AI coding agents**: this file is the canonical install reference. Read once, act. Decision tables, not narrative.
 
+## Side effects
+
+`npm install -g agentlint-ai` writes to `~/.claude/` and registers the `/al` Claude Code plugin. To install without these side effects, use `npm install -g --ignore-scripts agentlint-ai` (also covered in Failure modes for read-only `~/.claude` environments).
+
 ## Default
 
 ```bash

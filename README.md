@@ -30,6 +30,8 @@
 npm install -g agentlint-ai
 ```
 
+> Side effects: writes to `~/.claude/` and registers the `/al` Claude Code plugin. See [INSTALL.md](./INSTALL.md#side-effects) for `--ignore-scripts` opt-out.
+
 Then in any git repo:
 
 ```bash
