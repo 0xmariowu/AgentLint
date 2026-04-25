@@ -166,7 +166,11 @@ runs:
       run: |
         node -e '
           const v = process.env.AL_FAIL_BELOW;
-          if (!/^(100|[1-9]?[0-9])$/.test(v || "")) {
+          if (typeof v !== "string" || v.trim() === "") {
+            console.error("::error::fail-below requires a numeric value (0-100)");
+            process.exit(1);
+          }
+          if (!/^(100|[1-9]?[0-9])$/.test(v)) {
             console.error("::error::fail-below must be an integer from 0 to 100, got " + JSON.stringify(v));
             process.exit(1);
           }

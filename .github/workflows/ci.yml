@@ -242,3 +242,12 @@ jobs:
           # New behavior: graceful exit 0 when Claude not found
           test "$code" -eq 0
           echo "$output" | grep -qi "Claude Code not found\|CLI is ready\|CLI installed"
+
+  # Aggregator that emits the stable check context 'npm-e2e' required by main
+  # branch protection. The real matrix check names include OS suffixes.
+  npm-e2e-summary:
+    name: npm-e2e
+    needs: npm-e2e
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "npm e2e matrix passed"

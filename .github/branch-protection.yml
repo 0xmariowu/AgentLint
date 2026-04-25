@@ -1,0 +1,15 @@
+repository: 0xmariowu/AgentLint
+branch: main
+required_status_checks:
+  strict: true
+  contexts:
+    - lint (20)
+    - lint (22)
+    - test (20)
+    - test (22)
+    - scan
+    - label
+    - accuracy
+    - npm-e2e
+    - analyze
+    - Semgrep

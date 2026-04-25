@@ -230,6 +230,38 @@ function normalizeArtifactUri(filePath) {
   return encodeURI(normalized || '.');
 }
 
+function prefixedArtifactUri(projectPath, filePath) {
+  let rawPath = String(filePath || '.').trim();
+  try {
+    rawPath = decodeURI(rawPath);
+  } catch (_) {
+    // Leave malformed percent escapes untouched; normalizeArtifactUri will
+    // encode the path safely below.
+  }
+  const rawProjectPath = String(projectPath || '').trim();
+  if (!rawProjectPath || rawPath.startsWith('/') || /^[a-z]+:\/\//i.test(rawPath)) {
+    return normalizeArtifactUri(rawPath);
+  }
+
+  const normalizedProject = rawProjectPath
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '')
+    .replace(/\/+$/, '');
+  const normalizedFile = rawPath
+    .replace(/\\/g, '/')
+    .replace(/^\.\//, '')
+    .replace(/^\/+/, '');
+
+  if (!normalizedFile || normalizedFile === '.') {
+    return normalizeArtifactUri(normalizedProject || '.');
+  }
+  if (normalizedFile === normalizedProject || normalizedFile.startsWith(`${normalizedProject}/`)) {
+    return normalizeArtifactUri(normalizedFile);
+  }
+
+  return normalizeArtifactUri(`${normalizedProject}/${normalizedFile}`);
+}
+
 function isPathLikeString(value) {
   if (typeof value !== 'string') return false;
   const trimmed = value.trim();
@@ -420,6 +452,7 @@ function generateSarif(scores, plan, opts) {
   const results = [];
   for (const [key, entry] of Object.entries(scores.by_project || {})) {
     const project = (entry && entry.project) || key;
+    const projectPath = entry && entry.project_path;
     for (const [dimension, dim] of Object.entries(entry || {})) {
       if (dimension === 'project' || dimension === 'project_path') continue;
       if (!dim || !Array.isArray(dim.checks)) continue;
@@ -448,7 +481,7 @@ function generateSarif(scores, plan, opts) {
           locations: [{
             physicalLocation: {
               artifactLocation: {
-                uri: resolveFilePath(check, scores, project),
+                uri: prefixedArtifactUri(projectPath, resolveFilePath(check, scores, project)),
               },
             },
           }],
@@ -930,6 +963,10 @@ function main() {
   const fileStamp = `${date}-${time}`;
   let failBelow = null;
   if (failBelowPresent) {
+    if (typeof failBelowRaw !== 'string' || failBelowRaw.trim() === '') {
+      process.stderr.write('--fail-below requires a numeric value (0-100)\n');
+      process.exit(1);
+    }
     failBelow = Number(failBelowRaw);
     if (!Number.isFinite(failBelow) || failBelow < 0 || failBelow > 100) {
       process.stderr.write('reporter.js: --fail-below must be a number between 0 and 100\n');

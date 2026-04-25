@@ -19,7 +19,7 @@
 // (if it needs a handler). This test makes that requirement unambiguous.
 
 const assert = require('node:assert/strict');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -42,6 +42,23 @@ function runTest(name, fn) {
     process.stdout.write(`FAIL: ${name}\n`);
     process.stdout.write(`${error.message}\n`);
   }
+}
+
+function yamlList(src, key) {
+  const lines = src.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === `${key}:`);
+  if (start < 0) return [];
+  const items = [];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith('- ')) {
+      items.push(trimmed.slice(2));
+      continue;
+    }
+    if (!lines[i].startsWith(' ')) break;
+  }
+  return items;
 }
 
 const CHECK_IDS = Object.keys(EVIDENCE.checks);
@@ -322,6 +339,71 @@ runTest('action.yml fails closed on plan-generator errors and invalid fail-below
     'action.yml plan step must emit an error + exit 1 on plan-generator failure');
   assert.match(yml, /\/\^\(100\|\[1-9\]\?\[0-9\]\)\$\//,
     'action.yml Threshold check must validate fail-below against the 0-100 integer regex');
+  assert.match(yml, /v\.trim\(\)\s*===\s*[""]{2}[\s\S]{0,120}fail-below requires a numeric value/,
+    'action.yml Threshold check must reject whitespace-only fail-below before numeric coercion');
+});
+
+runTest('reporter rejects empty --fail-below values', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-empty-fail-below-'));
+  try {
+    const scoresPath = path.join(tempDir, 'scores.json');
+    fs.writeFileSync(scoresPath, JSON.stringify({ total_score: 100, dimensions: {}, by_project: {} }));
+
+    for (const args of [
+      [path.join(ROOT, 'src', 'reporter.js'), scoresPath, '--fail-below='],
+      [path.join(ROOT, 'src', 'reporter.js'), scoresPath, '--fail-below', ''],
+    ]) {
+      const result = spawnSync(process.execPath, args, { encoding: 'utf8' });
+      assert.equal(result.status, 1, `${args.join(' ')} must exit 1`);
+      assert.match(result.stderr, /--fail-below requires a numeric value \(0-100\)/);
+    }
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+runTest('branch-protection.yml declares the canonical required checks', () => {
+  const protectionPath = path.join(ROOT, '.github', 'branch-protection.yml');
+  assert.ok(fs.existsSync(protectionPath),
+    '.github/branch-protection.yml must exist as the checked-in branch protection contract');
+
+  const yml = fs.readFileSync(protectionPath, 'utf8');
+  assert.match(yml, /repository:\s*0xmariowu\/AgentLint/);
+  assert.match(yml, /branch:\s*main/);
+
+  const required = [
+    'lint (20)',
+    'lint (22)',
+    'test (20)',
+    'test (22)',
+    'scan',
+    'label',
+    'accuracy',
+    'npm-e2e',
+    'analyze',
+    'Semgrep',
+  ];
+  assert.deepEqual(yamlList(yml, 'contexts'), required,
+    'branch-protection.yml required_status_checks.contexts must match the canonical gate set');
+
+  const scriptPath = path.join(ROOT, 'scripts', 'setup-branch-protection.sh');
+  assert.ok(fs.existsSync(scriptPath),
+    'scripts/setup-branch-protection.sh must exist for an admin to apply the checked-in contract manually');
+  const script = fs.readFileSync(scriptPath, 'utf8');
+  assert.match(script, /branch-protection\.yml/,
+    'setup script must read the checked-in branch-protection.yml file');
+  assert.match(script, /protection\/required_status_checks/,
+    'setup script must update required status checks, not unrelated branch protection settings');
+});
+
+runTest('stable required check contexts exist for npm-e2e and Semgrep', () => {
+  const ci = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
+  assert.match(ci, /npm-e2e-summary:[\s\S]{0,120}name:\s*npm-e2e/,
+    'ci.yml must emit a stable npm-e2e summary check for branch protection');
+
+  const semgrep = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'semgrep.yml'), 'utf8');
+  assert.match(semgrep, /jobs:[\s\S]*scan:[\s\S]{0,80}name:\s*Semgrep/,
+    'semgrep.yml must emit a stable Semgrep check name for branch protection');
 });
 
 runTest('agentlint fix without a check id fails fast with a product-level message', () => {
@@ -547,6 +629,57 @@ runTest('scanner + scorer + plan-generator bucket by project_path (not basename)
     'scorer.js mergeRecord must key byProject on project_path (basename fallback only)');
   assert.match(planGen, /dedupeProject = normalized\.project_path \|\| normalized\.project/,
     'plan-generator.js dedupe key must use project_path when available');
+});
+
+runTest('reporter SARIF artifact URIs preserve project_path identity', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-sarif-project-path-'));
+  try {
+    const scores = {
+      total_score: 60,
+      dimensions: {},
+      by_project: {
+        'org1/app': {
+          project: 'app',
+          project_path: 'org1/app',
+          findability: {
+            checks: [
+              { check_id: 'F5', name: 'All references resolve', score: 0.4, measured_value: 1, detail: 'broken refs' },
+            ],
+          },
+        },
+        'org2/app': {
+          project: 'app',
+          project_path: 'org2/app',
+          findability: {
+            checks: [
+              { check_id: 'F5', name: 'All references resolve', score: 0.3, measured_value: 1, detail: 'broken refs' },
+            ],
+          },
+        },
+      },
+    };
+    const scoresPath = path.join(tempDir, 'scores.json');
+    fs.writeFileSync(scoresPath, JSON.stringify(scores, null, 2));
+
+    execFileSync(process.execPath, [
+      path.join(ROOT, 'src', 'reporter.js'),
+      scoresPath,
+      '--format',
+      'sarif',
+      '--output-dir',
+      tempDir,
+    ], { cwd: ROOT });
+
+    const sarifFile = fs.readdirSync(tempDir).find((file) => file.endsWith('.sarif'));
+    assert.ok(sarifFile, 'reporter must write a SARIF file');
+    const sarif = JSON.parse(fs.readFileSync(path.join(tempDir, sarifFile), 'utf8'));
+    const uris = sarif.runs[0].results.map((result) => (
+      result.locations[0].physicalLocation.artifactLocation.uri
+    )).sort();
+    assert.deepEqual(uris, ['org1/app/CLAUDE.md', 'org2/app/CLAUDE.md']);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 runTest('session-analyzer sentinels never emit bare records lacking project identity', () => {
@@ -806,6 +939,75 @@ runTest('accuracy workflow fails closed on missing corpus + scanner failures', (
     'accuracy workflow scanner loop must not swallow per-repo failures with `|| true`');
   assert.match(yml, /Scanner failed on \$fails\/\$total repos/,
     'accuracy workflow must report per-repo failure count and fail beyond a threshold');
+});
+
+runTest('release workflow validates tag against all version sources', () => {
+  const yml = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8');
+  for (const needle of [
+    'package.json',
+    '.claude-plugin/plugin.json',
+    '.claude-plugin/marketplace.json',
+    'release-metadata.json',
+  ]) {
+    assert.match(yml, new RegExp(needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      `release.yml Validate tag step must read ${needle}`);
+  }
+  assert.match(yml, /\['metadata', 'version'\]/,
+    'release.yml must validate marketplace.json metadata.version');
+  assert.match(yml, /\['plugins', 0, 'version'\]/,
+    'release.yml must validate marketplace.json plugins[0].version');
+});
+
+runTest('release workflow version validator fails on source version drift', () => {
+  const yml = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8');
+  const match = yml.match(/python3 - "\$VERSION" <<'PY'\n([\s\S]*?)\n\s*PY/);
+  assert.ok(match, 'release.yml must keep the source-version validator in a Python heredoc');
+  const validator = match[1].replace(/^ {10}/gm, '');
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-release-version-'));
+  try {
+    fs.mkdirSync(path.join(tempDir, '.claude-plugin'), { recursive: true });
+    for (const file of [
+      'package.json',
+      '.claude-plugin/plugin.json',
+      '.claude-plugin/marketplace.json',
+      'release-metadata.json',
+    ]) {
+      fs.copyFileSync(path.join(ROOT, file), path.join(tempDir, file));
+    }
+
+    const expected = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
+    execFileSync('python3', ['-', expected], { cwd: tempDir, input: validator, encoding: 'utf8' });
+
+    const pkgPath = path.join(tempDir, 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    pkg.version = '0.0.0-drift';
+    fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+
+    const drift = spawnSync('python3', ['-', expected], {
+      cwd: tempDir,
+      input: validator,
+      encoding: 'utf8',
+    });
+    assert.notEqual(drift.status, 0, 'validator must fail when package.json version drifts');
+    assert.match(drift.stdout + drift.stderr, /package\.json version 0\.0\.0-drift/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+runTest('release workflow publishes npm before creating GitHub Release', () => {
+  const yml = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8');
+  const publishIdx = yml.indexOf('- name: Publish to npm');
+  const releaseIdx = yml.indexOf('- name: Create GitHub Release');
+  assert.ok(publishIdx >= 0, 'release.yml must include a Publish to npm step');
+  assert.ok(releaseIdx >= 0, 'release.yml must include a Create GitHub Release step');
+  assert.ok(publishIdx < releaseIdx,
+    'release.yml must run npm publish before gh release create');
+  assert.match(yml, /Publish npm first[\s\S]{0,300}GitHub[\s\S]{0,120}without an npm package/,
+    'release.yml must document why npm publish precedes GitHub Release creation');
+  assert.doesNotMatch(yml.slice(0, publishIdx), /gh release create/,
+    'release.yml must not create the GitHub Release before npm publish');
 });
 
 process.stdout.write(`${passed}/${total} tests passed\n`);

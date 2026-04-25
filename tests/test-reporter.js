@@ -186,6 +186,48 @@ runTest('sarif format includes note-level results when --sarif-include-all is se
   }
 });
 
+runTest('sarif format prefixes locations with project_path when present', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-reporter-sarif-project-path-'));
+
+  try {
+    const scores = {
+      total_score: 45,
+      dimensions: {},
+      by_project: {
+        'org1/app': {
+          project: 'app',
+          project_path: 'org1/app',
+          findability: makeDimension(4, 0.25, [
+            { check_id: 'F5', name: 'All references resolve', score: 0.4, measured_value: 1, detail: 'broken refs' },
+          ]),
+        },
+        'org2/app': {
+          project: 'app',
+          project_path: 'org2/app',
+          findability: makeDimension(3, 0.25, [
+            { check_id: 'F5', name: 'All references resolve', score: 0.3, measured_value: 1, detail: 'broken refs' },
+          ]),
+        },
+      },
+    };
+    const scoresPath = path.join(tempDir, 'scores.json');
+    fs.writeFileSync(scoresPath, JSON.stringify(scores, null, 2));
+    runReporter([scoresPath, '--format', 'sarif', '--output-dir', tempDir]);
+
+    const sarifFile = fs.readdirSync(tempDir).find((name) => name.endsWith('.sarif'));
+    assert.ok(sarifFile, 'expected a sarif report file');
+
+    const sarif = JSON.parse(fs.readFileSync(path.join(tempDir, sarifFile), 'utf8'));
+    const uris = sarif.runs[0].results.map((result) => (
+      result.locations[0].physicalLocation.artifactLocation.uri
+    )).sort();
+    assert.deepEqual(uris, ['org1/app/CLAUDE.md', 'org2/app/CLAUDE.md']);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+
 runTest('scores file is not confused with --plan value', () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-reporter-plan-'));
 
@@ -287,6 +329,25 @@ runTest('fail-below without a value exits 1 with a clear message', () => {
     // New contract: missing-value check fires in the arg parser before we
     // reach the "must be a number" path, so stderr mentions "requires a value".
     assert.match(result.stderr, /--fail-below.*requires a value/);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+runTest('fail-below with an empty value exits 1 with a numeric-value message', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'al-reporter-fail-below-empty-'));
+  try {
+    const scoresPath = writeFixtureScores(tempDir);
+    for (const args of [
+      [scoresPath, '--fail-below='],
+      [scoresPath, '--fail-below', ''],
+    ]) {
+      const result = spawnSync(process.execPath, [reporterPath, ...args], {
+        encoding: 'utf8',
+      });
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /--fail-below requires a numeric value \(0-100\)/);
+    }
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
