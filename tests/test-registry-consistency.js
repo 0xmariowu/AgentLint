@@ -868,14 +868,25 @@ runTest('scanner malformed settings.json fails H1-H6 loud', () => {
   const scanner = fs.readFileSync(path.join(ROOT, 'src', 'scanner.sh'), 'utf8');
   assert.match(scanner, /settings_malformed=false/,
     'scanner.sh must track whether .claude/settings.json parsed successfully');
-  assert.match(scanner, /jq -e type "\$settings_path"/,
-    'scanner.sh must validate settings.json with jq before H1-H6 reads');
+  assert.match(scanner, /jq -e type "\$settings_path" 2>&1 >\/dev\/null/,
+    'scanner.sh must validate settings.json with jq and capture stderr before H1-H6 reads');
   assert.match(scanner, /settings\.json malformed: \$\{settings_error\}/,
     'scanner.sh must emit malformed-settings detail instead of silently passing H checks');
   for (const id of ['H1', 'H2', 'H3', 'H4', 'H5', 'H6']) {
     assert.match(scanner, new RegExp(`emit_result "\\$project_name" "${id}" "null" "null" "0" "settings\\.json malformed:`),
       `${id} must score 0 when settings.json is malformed`);
   }
+});
+
+runTest('scorer rejects partially malformed JSONL with line numbers', () => {
+  const result = spawnSync(process.execPath, [path.join(ROOT, 'src', 'scorer.js')], {
+    encoding: 'utf8',
+    input: '{"check_id":"F1","project":"x","score":1}\nnot-json garbage\n{"check_id":"F2","project":"x","score":0}\n',
+  });
+  assert.equal(result.status, 1, 'scorer must exit non-zero on any malformed nonblank line');
+  assert.equal(result.stdout, '', 'scorer must not emit JSON after seeing malformed JSONL');
+  assert.match(result.stderr, /malformed JSONL at line\(s\): 2/,
+    'scorer error must list offending line numbers');
 });
 
 runTest('scorer refuses empty or all-malformed input', () => {
@@ -888,6 +899,18 @@ runTest('scorer refuses empty or all-malformed input', () => {
     'scorer.js must emit the refusal error for empty/all-malformed input');
   assert.match(scorer, /if \(validRecordCount === 0\)[\s\S]{0,180}process\.exit\(1\)/,
     'scorer.js must exit non-zero before emitting JSON when no records are valid');
+});
+
+runTest('session-analyzer leaves unmatched sessions unattributed', () => {
+  const ss = fs.readFileSync(path.join(ROOT, 'src', 'session-analyzer.js'), 'utf8');
+  assert.match(ss, /project:\s*projectMapping \? projectMapping\.name : null/,
+    'unmatched sessions must carry project:null instead of the raw session dirname');
+  assert.match(ss, /project_path:\s*projectMapping \? projectMapping\.dir : null/,
+    'unmatched sessions must carry project_path:null');
+  assert.match(ss, /const project = session\.project_entry;/,
+    'SS2 must use the per-session catalog match only, not re-match unmatched sessions');
+  assert.doesNotMatch(ss, /session\.project_entry \|\| catalog\.find/,
+    'SS2 must not borrow identity from another catalog entry');
 });
 
 runTest('plan-generator includes session findings even when fix_type is null', () => {
@@ -926,8 +949,37 @@ runTest('/al Step 3b Deep flow uses project_path, not basename resolution', () =
 
 runTest('scanner.sh discovers .git directories and .git files (worktrees)', () => {
   const src = fs.readFileSync(path.join(ROOT, 'src', 'scanner.sh'), 'utf8');
-  assert.match(src, /find "\$projects_root"[\s\S]{0,120}-type d -name '\.git'[\s\S]{0,40}-o[\s\S]{0,40}-type f -name '\.git'/,
+  assert.match(src, /find "\$projects_root"[\s\S]{0,160}-type d -name '\.git'[\s\S]{0,60}-o[\s\S]{0,60}-type f -name '\.git'/,
     'scanner.sh discover_projects must search both .git dirs and .git files');
+});
+
+runTest('scanner.sh discovery and --projects-root parsing are edge-case safe', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'scanner.sh'), 'utf8');
+  assert.match(src, /--projects-root=\*\)[\s\S]{0,180}error: --projects-root requires a path/,
+    'scanner.sh must reject --projects-root= with a clear error');
+  assert.match(src, /-print0[\s\S]{0,80}while IFS= read -r -d '' gitdir/,
+    'scanner.sh discover_projects must use NUL-delimited find output');
+  assert.match(src, /while IFS= read -r -d '' arg[\s\S]{0,120}discover_projects "\$projects_root"/,
+    'scanner.sh main must consume discovered projects as NUL-delimited paths');
+});
+
+runTest('scanner.sh git smoke catches broken git instead of silent skips', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'scanner.sh'), 'utf8');
+  assert.match(src, /git --version >\/dev\/null 2>&1/,
+    'scanner.sh must smoke-test the git binary');
+  assert.match(src, /git -C "\$project_dir" rev-parse --is-inside-work-tree/,
+    'scanner.sh must smoke-test git against project worktrees');
+  assert.match(src, /error: git is not usable for project/,
+    'scanner.sh must fail loudly when git exists but cannot read the project');
+});
+
+runTest('scanner.sh W8 parses package.json with jq, not python3', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'scanner.sh'), 'utf8');
+  const w8 = src.slice(src.indexOf('# W8'), src.indexOf('# W9'));
+  assert.match(w8, /jq -e '\.scripts\.test\? \| strings \| length > 0'/,
+    'W8 must use jq to parse package.json scripts.test');
+  assert.doesNotMatch(w8, /python3 -c|python -c/,
+    'W8 must not require python for package.json parsing');
 });
 
 runTest('test-install-script.sh does not use grep -c || echo pattern', () => {

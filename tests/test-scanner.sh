@@ -2262,6 +2262,90 @@ test_c6_no_handoff() {
 run_test "C6: HANDOFF with verify conditions → 1" test_c6_handoff_verify_conditions
 run_test "C6: no HANDOFF.md → 0" test_c6_no_handoff
 
+test_projects_root_empty_equals_rejected() {
+  local err="${TEMP_ROOT}/projects-root-empty.err"
+  if bash "${SCANNER}" --projects-root= > /dev/null 2>"$err"; then
+    TEST_ERROR="scanner accepted empty --projects-root="
+    return 1
+  fi
+  if ! grep -q 'error: --projects-root requires a path' "$err"; then
+    TEST_ERROR="scanner did not emit clear --projects-root error: $(cat "$err")"
+    return 1
+  fi
+}
+
+test_w8_uses_jq_without_python3() {
+  local fakebin t_dir out score
+  fakebin="${TEMP_ROOT}/fakebin-w8"
+  t_dir="${TEMP_ROOT}/w8-no-python"
+  out="${TEMP_ROOT}/w8-no-python.jsonl"
+  mkdir -p "$fakebin" "$t_dir"
+  cat > "${fakebin}/python3" <<'EOF'
+#!/usr/bin/env sh
+exit 127
+EOF
+  chmod +x "${fakebin}/python3"
+  git -C "$t_dir" init --quiet 2>/dev/null || true
+  printf '{"name":"my-tool","scripts":{"test":"node test.js"}}\n' > "${t_dir}/package.json"
+  printf '# Project\n\nRun npm test.\n' > "${t_dir}/CLAUDE.md"
+  git -C "$t_dir" add -A 2>/dev/null && git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit -m "init" --quiet 2>/dev/null || true
+  PATH="${fakebin}:$PATH" bash "${SCANNER}" --project-dir "$t_dir" > "$out" 2>/dev/null
+  score="$(extract_check_score "$out" "W8")" || { TEST_ERROR="W8 not found"; return 1; }
+  if [ "$score" != "1" ]; then TEST_ERROR="W8 should be 1 without python3 (got ${score})"; return 1; fi
+}
+
+test_project_discovery_handles_newline_paths() {
+  local root t_dir out project_name
+  root="${TEMP_ROOT}/newline-root"
+  project_name="repo
+edge"
+  t_dir="${root}/${project_name}"
+  out="${TEMP_ROOT}/newline-root.jsonl"
+  mkdir -p "$t_dir"
+  git -C "$t_dir" init --quiet 2>/dev/null || true
+  printf '# Project\n\nRun tests with npm test.\n' > "${t_dir}/CLAUDE.md"
+  git -C "$t_dir" add -A 2>/dev/null && git -C "$t_dir" -c user.name=test -c user.email=t@noreply.github.com commit -m "init" --quiet 2>/dev/null || true
+  if ! bash "${SCANNER}" --projects-root "$root" > "$out" 2>/dev/null; then
+    TEST_ERROR="scanner failed to discover newline path"
+    return 1
+  fi
+  if ! jq -e --arg project "$project_name" 'select(.project == $project)' "$out" >/dev/null; then
+    TEST_ERROR="scanner output did not include newline project name"
+    return 1
+  fi
+}
+
+test_broken_git_project_fails_loudly() {
+  local fakebin t_dir err
+  fakebin="${TEMP_ROOT}/fakebin-broken-git"
+  t_dir="${TEMP_ROOT}/broken-git-project"
+  err="${TEMP_ROOT}/broken-git.err"
+  mkdir -p "$fakebin" "${t_dir}/.git"
+  printf '# Project\n' > "${t_dir}/CLAUDE.md"
+  cat > "${fakebin}/git" <<'EOF'
+#!/usr/bin/env sh
+if [ "$1" = "--version" ]; then
+  printf 'git version 0.0.fake\n'
+  exit 0
+fi
+exit 128
+EOF
+  chmod +x "${fakebin}/git"
+  if PATH="${fakebin}:$PATH" bash "${SCANNER}" --project-dir "$t_dir" > /dev/null 2>"$err"; then
+    TEST_ERROR="scanner accepted a project when git rev-parse was broken"
+    return 1
+  fi
+  if ! grep -q 'error: git is not usable for project' "$err"; then
+    TEST_ERROR="scanner did not explain broken git: $(cat "$err")"
+    return 1
+  fi
+}
+
+run_test "scanner rejects empty --projects-root=" test_projects_root_empty_equals_rejected
+run_test "W8: jq parser works when python3 is unavailable" test_w8_uses_jq_without_python3
+run_test "project discovery handles newline paths" test_project_discovery_handles_newline_paths
+run_test "scanner fails loudly when git rev-parse is broken" test_broken_git_project_fails_loudly
+
 run_test "emit_result: unknown check_id fails loudly" test_emit_result_unknown_check_id_fails_loudly
 run_test "emit_result: jq failure fails loudly" test_emit_result_jq_failure_fails_loudly
 run_test "emit_result: empty jq output fails loudly" test_emit_result_empty_output_fails_loudly

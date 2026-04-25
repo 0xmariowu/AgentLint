@@ -787,7 +787,7 @@ function buildS2Findings(sessions, catalog, options) {
   const hits = new Map();
 
   for (const session of sessions) {
-    const project = session.project_entry || catalog.find((entry) => entry.name === session.project) || matchProjectFromCatalog(session.projectRaw, catalog);
+    const project = session.project_entry;
     if (!project || !project.rules.length) continue;
     const entries = session.entries;
 
@@ -920,7 +920,7 @@ async function run() {
     sessions.push({
       id: filePath,
       projectRaw: sessionProject,
-      project: projectMapping ? projectMapping.name : sessionProject,
+      project: projectMapping ? projectMapping.name : null,
       project_path: projectMapping ? projectMapping.dir : null,
       project_entry: projectMapping,
       entries,
