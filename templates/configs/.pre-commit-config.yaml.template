@@ -1,4 +1,4 @@
-# VibeKit pre-commit config template.
+# pre-commit config template (provisioned by agentlint setup).
 #
 # Python projects: this IS the commit-gate — no husky, no commitlint needed.
 #   pip install pre-commit && pre-commit install --install-hooks
