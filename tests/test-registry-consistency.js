@@ -451,14 +451,32 @@ runTest('setup.sh validates flag values and is non-destructive by default', () =
 
 runTest('setup.sh guards symlink writes and backs up changed overwrites', () => {
   const src = fs.readFileSync(path.join(ROOT, 'scripts', 'setup.sh'), 'utf8');
-  assert.match(src, /readlink -f/,
-    'setup.sh must resolve write targets with readlink -f when available');
+  assert.doesNotMatch(src, /readlink -f/,
+    'setup.sh must not depend on GNU readlink -f; macOS BSD readlink lacks it on older systems');
+  assert.match(src, /realpath_portable\s*\(\)\s*{[\s\S]{0,260}pwd -P/,
+    'setup.sh must resolve paths with a portable cd + pwd -P helper');
   assert.match(src, /assert_project_path\s*\(\)/,
     'setup.sh must assert resolved write targets stay under PROJECT_ROOT');
   assert.match(src, /al-backup-\$\{BACKUP_TS\}/,
     'setup.sh must create per-file .al-backup timestamp backups before changed overwrites');
   assert.match(src, /backed up/,
     'setup.sh must print a visible backup message');
+});
+
+runTest('setup.sh has rollback transaction and git top-level default', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'scripts', 'setup.sh'), 'utf8');
+  assert.match(src, /--project-dir/,
+    'setup.sh must expose --project-dir as the explicit root override');
+  assert.match(src, /PROJECT_DIR_EXPLICIT/,
+    'setup.sh must distinguish explicit project-dir from default root detection');
+  assert.match(src, /rev-parse --show-toplevel/,
+    'setup.sh must default setup to the git top-level when run from a subdirectory');
+  assert.match(src, /rollback_setup\s*\(\)/,
+    'setup.sh must define rollback_setup for partial-write failures');
+  assert.match(src, /trap 'rollback_setup "\$\?"' EXIT/,
+    'setup.sh must run rollback_setup on exit before the transaction is committed');
+  assert.match(src, /track_path_before_write/,
+    'setup.sh must record newly-created write targets before mutating them');
 });
 
 runTest('setup.sh refuses non-git dirs unless --init-git is explicit', () => {
@@ -554,6 +572,22 @@ runTest('fixer.js resolves write targets before fs.writeFileSync', () => {
     'fixer.js must assert filePath is inside the project before mutating entry files');
   assert.match(src, /assertRealPathInsideProject\(projectDir,\s*targetPath\)/,
     'fixer.js must assert generated target paths before writing workflow/hook files');
+});
+
+runTest('fixer.js rolls back multi-item transactions on failure', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'fixer.js'), 'utf8');
+  assert.match(src, /function createTransaction/,
+    'fixer.js must create a per-run transaction');
+  assert.match(src, /function rollbackTransaction/,
+    'fixer.js must define rollbackTransaction');
+  assert.match(src, /transaction\.backups\.push/,
+    'fixer.js must track backups for restoration');
+  assert.match(src, /transaction\.createdPaths\.push/,
+    'fixer.js must track created paths for cleanup');
+  assert.match(src, /result\.status === 'failed'[\s\S]{0,80}rollbackTransaction/,
+    'fixer.js must roll back the run when any selected item fails');
+  assert.match(src, /rolled_back/,
+    'fixer.js output must report when a transaction was rolled back');
 });
 
 runTest('agentlint doctor command exists and checks required deps', () => {

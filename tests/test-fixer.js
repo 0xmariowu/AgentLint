@@ -458,6 +458,62 @@ runTest('multiple items can be fixed in a single run', () => {
   }
 });
 
+runTest('multi-item fix rolls back earlier mutations when a later item fails', () => {
+  const original = '# Project\nYou are a helpful assistant.\n';
+  const projectDir = makeTempProject({
+    'CLAUDE.md': original,
+    'HANDOFF.md': '# Existing handoff\n',
+  });
+  try {
+    const plan = [
+      { id: 1, check_id: 'I5', fix_type: 'auto', project: 'test', score: 0 },
+      { id: 2, check_id: 'C2', fix_type: 'assisted', project: 'test', score: 0 },
+    ];
+    const output = runFixer(plan, projectDir, [1, 2]);
+
+    assert.equal(output.executed.length, 2);
+    assert.equal(output.executed[0].status, 'fixed');
+    assert.equal(output.executed[1].status, 'failed');
+    assert.equal(output.rolled_back, true, 'failed transaction should report rollback');
+    assert.equal(fs.readFileSync(path.join(projectDir, 'CLAUDE.md'), 'utf8'), original,
+      'earlier CLAUDE.md mutation should be restored');
+    assert.equal(fs.readFileSync(path.join(projectDir, 'HANDOFF.md'), 'utf8'), '# Existing handoff\n',
+      'pre-existing failed target should remain unchanged');
+  } finally {
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
+runTest('--checks resolution failure prevents later resolved fixes from mutating files', () => {
+  const original = '# Project\nYou are a helpful assistant.\n';
+  const projectDir = makeTempProject({
+    'CLAUDE.md': original,
+  });
+  try {
+    const plan = [
+      { id: 1, check_id: 'I5', fix_type: 'auto', project: 'test', score: 0 },
+    ];
+    const result = spawnSync(process.execPath, [
+      fixerPath,
+      '--project-dir', projectDir,
+      '--checks', 'Z9,I5',
+    ], {
+      encoding: 'utf8',
+      input: JSON.stringify({ items: plan }),
+    });
+
+    assert.notEqual(result.status, 0, 'missing check should fail the run');
+    const output = JSON.parse(result.stdout);
+    assert.equal(output.executed.length, 1);
+    assert.equal(output.executed[0].status, 'failed');
+    assert.equal(output.rolled_back, true);
+    assert.equal(fs.readFileSync(path.join(projectDir, 'CLAUDE.md'), 'utf8'), original,
+      'resolved I5 fix should not run after a check-resolution failure');
+  } finally {
+    fs.rmSync(projectDir, { recursive: true, force: true });
+  }
+});
+
 runTest('backup_dir is always present in output even with no files modified', () => {
   const projectDir = makeTempProject({
     'CLAUDE.md': '# Project\n## Rules\n- Follow conventions\n',
