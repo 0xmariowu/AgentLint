@@ -145,14 +145,21 @@ runTest('all-malformed JSONL refuses to compute a score', () => {
   const result = runScorerRaw('not-json\n{broken\n', false);
   assert.equal(result.status, 1);
   assert.equal(result.stdout, '', 'all-malformed input must not emit a JSON document');
-  assert.match(result.stderr, /scorer\.js: no valid scan records — refusing to compute score/);
+  assert.match(result.stderr, /scorer\.js: malformed JSONL at line\(s\): 1, 2/);
 });
 
-runTest('malformed JSONL lines are skipped without crashing', () => {
+runTest('partially malformed JSONL refuses to compute a score', () => {
   const input = `not-json\n{"check_id":"F1","project":"test","score":1,"name":"Entry"}\n{broken\n`;
+  const result = runScorerRaw(input, false);
+  assert.equal(result.status, 1);
+  assert.equal(result.stdout, '', 'partially malformed input must not emit a JSON document');
+  assert.match(result.stderr, /scorer\.js: malformed JSONL at line\(s\): 1, 3/);
+});
+
+runTest('blank JSONL lines do not count as malformed', () => {
+  const input = `\n{"check_id":"F1","project":"test","score":1,"name":"Entry"}\n\n`;
   const result = runScorerRaw(input);
   const output = JSON.parse(result.stdout);
-  // F1 line is valid — findability should have a score
   assert.ok(output.by_project.test, 'valid record should still be processed');
   assert.equal(output.by_project.test.findability.checks.length, 1);
 });

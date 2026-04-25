@@ -23,6 +23,7 @@ Scans git projects for AI-friendliness and writes JSONL to stdout.
 
 Options:
   --project-dir PATH   Scan a single project directory instead of auto-discovery
+  --projects-root PATH Root to discover git projects (default: ~/Projects)
   -h, --help          Show this help
 EOF
 }
@@ -32,6 +33,32 @@ require_command() {
     printf '%s\n' "Missing required command: $1" >&2
     exit 1
   }
+}
+
+require_git_usable() {
+  require_command git
+  git --version >/dev/null 2>&1 || {
+    printf '%s\n' "error: git is on PATH but failed: git --version" >&2
+    exit 1
+  }
+}
+
+has_git_marker() {
+  local project_dir="$1"
+  [ -d "${project_dir}/.git" ] || [ -f "${project_dir}/.git" ]
+}
+
+is_git_work_tree() {
+  local project_dir="$1"
+  git -C "$project_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1
+}
+
+expand_projects_root() {
+  # shellcheck disable=SC2088
+  case "$projects_root" in
+    '~')     projects_root="$HOME" ;;
+    '~/'*)   projects_root="$HOME/${projects_root#'~/'}" ;;
+  esac
 }
 
 portable_stat_mtime() {
@@ -1378,7 +1405,7 @@ EOF
   local pkg_json="${project_dir}/package.json"
   if [ -f "$pkg_json" ]; then
     local has_test_script=false
-    if python3 -c "import json,sys; d=json.load(open('$pkg_json')); sys.exit(0 if d.get('scripts',{}).get('test') else 1)" 2>/dev/null; then
+    if jq -e '.scripts.test? | strings | length > 0' "$pkg_json" >/dev/null 2>&1; then
       has_test_script=true
     fi
     if [ "$has_test_script" = true ]; then
@@ -1682,7 +1709,7 @@ WF_PRT
   local settings_malformed=false
   local settings_error=""
   if [ -f "$settings_path" ]; then
-    if ! settings_error="$(jq -e type "$settings_path" >/dev/null 2>&1)"; then
+    if ! settings_error="$(jq -e type "$settings_path" 2>&1 >/dev/null)"; then
       settings_malformed=true
       settings_error="$(printf '%s' "$settings_error" | tr '\n' ' ' | sed 's/[[:space:]][[:space:]]*/ /g; s/^ //; s/ $//')"
       [ -n "$settings_error" ] || settings_error="invalid JSON"
@@ -2079,37 +2106,27 @@ EOF_I8
 
 discover_projects() {
   local projects_root="$1"
+  local gitdir=""
 
   [ -d "$projects_root" ] || return 0
 
   if [ -d "${projects_root}/.git" ] || [ -f "${projects_root}/.git" ]; then
-    printf '%s\n' "$projects_root"
+    printf '%s\0' "$projects_root"
   fi
 
-  find "$projects_root" -mindepth 1 -maxdepth 4 \( -type d -name '.git' -o -type f -name '.git' \) 2>/dev/null | while IFS= read -r gitdir; do
-    printf '%s\n' "$(dirname "$gitdir")"
-  done | sort -u
+  find "$projects_root" -mindepth 1 -maxdepth 4 \( -type d -name '.git' -o -type f -name '.git' \) -print0 2>/dev/null | while IFS= read -r -d '' gitdir; do
+    printf '%s\0' "$(dirname "$gitdir")"
+  done
 }
 
 main() {
   local project_dir=""
   local projects_root="${PROJECTS_ROOT:-${HOME}/Projects}"
-  # Expand a leading tilde so PROJECTS_ROOT='~/Projects' (as a literal env
-  # string from /al's saved config) still points at $HOME. Shell would
-  # normally expand tilde only on word-level input, not in env-var strings,
-  # so callers can easily hand us a literal "~" that `find` cannot walk.
-  # shellcheck disable=SC2088
-  # SC2088 flags `~/` in single quotes as "won't expand". Intentional —
-  # this is a literal-character match on the input string, not a tilde
-  # we want shell to expand. The expansion is `$HOME` on the right side.
-  case "$projects_root" in
-    '~')     projects_root="$HOME" ;;
-    '~/'*)   projects_root="$HOME/${projects_root#'~/'}" ;;
-  esac
   local -a projects=()
   local arg=""
 
   require_command jq
+  require_git_usable
 
   [ -f "$EVIDENCE_FILE" ] || {
     printf '%s\n' "Missing required file: $EVIDENCE_FILE" >&2
@@ -2140,6 +2157,21 @@ main() {
           exit 1
         }
         ;;
+      --projects-root)
+        shift
+        [ "$#" -gt 0 ] && [ -n "$1" ] || {
+          printf '%s\n' "error: --projects-root requires a path" >&2
+          exit 1
+        }
+        projects_root="$1"
+        ;;
+      --projects-root=*)
+        projects_root="${arg#--projects-root=}"
+        [ -n "$projects_root" ] || {
+          printf '%s\n' "error: --projects-root requires a path" >&2
+          exit 1
+        }
+        ;;
       -h|--help)
         usage
         exit 0
@@ -2153,25 +2185,34 @@ main() {
     shift
   done
 
+  # Expand a leading tilde so PROJECTS_ROOT='~/Projects' (as a literal env
+  # string from /al's saved config) still points at $HOME. Shell would
+  # normally expand tilde only on word-level input, not in env-var strings,
+  # so callers can easily hand us a literal "~" that `find` cannot walk.
+  # shellcheck disable=SC2088
+  expand_projects_root
+
   if [ -n "$project_dir" ]; then
     if [ ! -d "$project_dir" ]; then
       printf '%s\n' "error: project directory not found: $project_dir" >&2
       exit 1
     fi
+    if has_git_marker "$project_dir" && ! is_git_work_tree "$project_dir"; then
+      printf '%s\n' "error: git is not usable for project: $project_dir" >&2
+      exit 1
+    fi
     # Warn if not a git repository — some checks (S9, C1, H6) require git and will skip.
-    if ! git -C "$project_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if ! is_git_work_tree "$project_dir"; then
       printf '%s\n' "warning: $project_dir is not a git repository — git-dependent checks (S9, C1) will be skipped" >&2
     fi
     scan_project "$(CDPATH='' cd -- "$project_dir" && pwd)"
     exit 0
   fi
 
-  while IFS= read -r arg; do
+  while IFS= read -r -d '' arg; do
     [ -z "$arg" ] && continue
     projects[${#projects[@]}]="$arg"
-  done <<EOF
-$(discover_projects "$projects_root")
-EOF
+  done < <(discover_projects "$projects_root")
 
   # Bash 3.2 (macOS default) treats `"${projects[@]}"` on an empty array as
   # `unbound variable` under `set -u`. Guard explicitly: no discovered repos
@@ -2184,6 +2225,10 @@ EOF
   fi
 
   for project_dir in "${projects[@]}"; do
+    if ! is_git_work_tree "$project_dir"; then
+      printf '%s\n' "error: git is not usable for discovered project: $project_dir" >&2
+      exit 1
+    fi
     scan_project "$project_dir"
   done
 }

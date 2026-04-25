@@ -250,6 +250,8 @@ async function run() {
 
   const targets = { global: globalState, byProject };
   let validRecordCount = 0;
+  let lineNumber = 0;
+  const malformedLineNumbers = [];
 
   function acceptRecord(record) {
     if (!record) return;
@@ -258,6 +260,7 @@ async function run() {
   }
 
   rl.on('line', (line) => {
+    lineNumber += 1;
     const text = line.trim();
     if (!text) return;
 
@@ -265,8 +268,7 @@ async function run() {
     try {
       parsed = JSON.parse(text);
     } catch (err) {
-      const preview = text.length > 80 ? `${text.slice(0, 77)}...` : text;
-      process.stderr.write(`scorer: skipping malformed JSONL line: ${preview}\n`);
+      malformedLineNumbers.push(lineNumber);
       return;
     }
 
@@ -295,6 +297,11 @@ async function run() {
   });
 
   await new Promise((resolve) => rl.on('close', resolve));
+
+  if (malformedLineNumbers.length > 0) {
+    process.stderr.write(`scorer.js: malformed JSONL at line(s): ${malformedLineNumbers.join(', ')}\n`);
+    process.exit(1);
+  }
 
   if (validRecordCount === 0) {
     process.stderr.write('scorer.js: no valid scan records — refusing to compute score\n');
