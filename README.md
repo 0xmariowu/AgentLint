@@ -27,37 +27,18 @@
 ## Install
 
 ```bash
-npx agentlint-ai init
-```
-
-You'll see the logo, a privacy-by-mode summary, and a green ✓/○ environment check. Safe to re-run.
-
-Then start a new Claude Code session and run:
-
-```
-/al
-```
-
-That's it. AgentLint scans your repo, scores it across 6 core dimensions (plus 2 opt-in extended analyzers when available), shows exactly what's wrong, and fixes what it can.
-
-`npx agentlint-ai init` configures the Claude Code plugin from the npx cache; it does not leave a persistent `agentlint` binary on PATH. For standalone CLI use in later shells, run:
-
-```bash
 npm install -g agentlint-ai
 ```
 
-**Other install paths** (npm global, curl, no-side-effects for corporate / CI): see **[INSTALL.md](./INSTALL.md)** — the canonical install reference, kept terse so AI agents can consume it directly.
-
-**One note on `npm install -g`**: npm 9+ silences `postinstall` stdout by default, so the logo + env check is invisible on plain `npm install -g agentlint-ai`. Either use `npx agentlint-ai init` (above) or add `--foreground-scripts` to the npm command. Full rationale in [INSTALL.md](./INSTALL.md).
-
-**No Claude Code?** The CLI works standalone:
+Then in any git repo:
 
 ```bash
-npm install -g agentlint-ai
 agentlint check
-agentlint fix W11
-agentlint setup --lang ts .
 ```
+
+In Claude Code: run `/al` for the interactive scan-fix-report flow.
+
+> **Using an AI coding agent?** Point it at [INSTALL.md](./INSTALL.md) — it's written to be read once and acted on.
 
 ## What you get
 
@@ -269,7 +250,7 @@ AgentLint ships as a **Claude Code plugin** and standalone **CLI**. When it runs
 ## Update
 
 ```bash
-npm install -g agentlint-ai@latest
+npm install -g agentlint-ai
 ```
 
 Or update the Claude Code plugin directly:
@@ -334,14 +315,7 @@ Deep is the only mode that transmits file contents off your machine, and it only
 
 **Yes, intentionally.** `npm install -g agentlint-ai` runs a `postinstall` script that registers the `/al` Claude Code plugin in `~/.claude/` when Claude Code is detected. This is a deliberate UX choice — AgentLint is Claude-Code-native and "install = ready to /al" is what users expect.
 
-If that design isn't a fit (corporate security review, sandboxed runner, read-only `$HOME`), use the no-side-effects path:
-
-```bash
-npm install -g --ignore-scripts agentlint-ai
-agentlint-ai init   # explicit opt-in, only if you want /al registered
-```
-
-Full install paths in [INSTALL.md](./INSTALL.md). A future v2.0 may invert this default and require explicit `agentlint-ai init` for the Claude Code side effect; feedback welcome.
+Failure-mode fallbacks live in [INSTALL.md](./INSTALL.md).
 </details>
 
 <details>

@@ -6,37 +6,19 @@
 
 ## Install
 
-{% tabs %}
-{% tab title="npx (recommended)" %}
-```bash
-npx agentlint-ai init
-```
-{% endtab %}
-{% tab title="curl" %}
-```bash
-curl -fsSL https://raw.githubusercontent.com/0xmariowu/agent-lint/main/scripts/install-user.sh | bash
-```
-{% endtab %}
-{% tab title="npm" %}
 ```bash
 npm install -g agentlint-ai
-agentlint-ai init
-```
-{% endtab %}
-{% endtabs %}
-
-`npx agentlint-ai init` runs the init UI from the npx cache. It configures
-the Claude Code plugin when Claude Code is present, but it does **not** install
-a persistent `agentlint` binary for later shell sessions. For persistent CLI
-commands, use `npm install -g agentlint-ai`.
-
-Then start a new Claude Code session:
-
-```
-/al
 ```
 
-That's it. AgentLint scans your projects, scores them, shows what's wrong, and fixes what it can.
+Then in any git repo:
+
+```bash
+agentlint check
+```
+
+In Claude Code: run `/al` for the interactive scan-fix-report flow.
+
+> **Using an AI coding agent?** Point it at [INSTALL.md](./INSTALL.md) — it's written to be read once and acted on.
 
 ## CLI commands
 
@@ -72,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: 0xmariowu/agent-lint@v0
+      - uses: 0xmariowu/agent-lint@v1
 ```
 
 This runs the default local-only core scan and does not fail the build on score
@@ -90,7 +72,7 @@ permissions:
 
 steps:
   - uses: actions/checkout@v4
-  - uses: 0xmariowu/agent-lint@v0
+  - uses: 0xmariowu/agent-lint@v1
     with:
       sarif-upload: 'true'
 ```
@@ -219,5 +201,5 @@ Every check cites its source. Full citations in [`standards/evidence.json`](http
 ## Update
 
 ```bash
-npm install -g agentlint-ai@latest
+npm install -g agentlint-ai
 ```
