@@ -1,6 +1,6 @@
 # Copilot instructions for AgentLint
 
-AgentLint is a shell-based linter for AI-friendly repos. It scans for CLAUDE.md/AGENTS.md quality, CI hygiene, and agent-ready patterns, then emits SARIF + scored reports. Primary language is bash (`src/scanner.sh` + 49 rules across 8 dimensions), with a TypeScript CLI wrapper and npm publishing pipeline.
+AgentLint is a shell-based linter for AI-friendly repos. It scans for CLAUDE.md/AGENTS.md quality, CI hygiene, and agent-ready patterns, then emits SARIF + scored reports. Implementation is bash + JavaScript: `src/scanner.sh` runs 51 deterministic checks across 6 core dimensions (findability, instructions, workability, safety, continuity, harness), and JS modules add 7 opt-in extended checks across 2 dimensions (Deep + Session) for 58 total. The CLI wrapper is shell + JS, published to npm.
 
 Any Copilot agent (Coding Agent, Code Review, ci-doctor) working on this repo must follow the rules below.
 
