@@ -1484,5 +1484,40 @@ runTest('INSTALL.md stays short and AI-native', () => {
   }
 });
 
+runTest('CI workflows do not expose secret diagnostics or token introspection', () => {
+  const workflowsDir = path.join(ROOT, '.github', 'workflows');
+  const ALLOWLIST = new Set([
+    // Add filenames here only with a written justification, never to silence a finding
+  ]);
+  const PROHIBITED_PATTERNS = [
+    /npm token list/i,
+    /npm whoami/i,
+    /npm access list/i,
+    /\bnodeauthtoken=\$\{node_auth_token\}/i,
+    new RegExp('Diagnose ' + 'NPM_TOKEN'),
+    /token-diag/i,
+  ];
+  for (const file of fs.readdirSync(workflowsDir)) {
+    if (!file.endsWith('.yml') && !file.endsWith('.yaml')) continue;
+    if (ALLOWLIST.has(file)) continue;
+    const src = fs.readFileSync(path.join(workflowsDir, file), 'utf8');
+    for (const pat of PROHIBITED_PATTERNS) {
+      assert.doesNotMatch(src, pat,
+        `${file} contains token-introspection pattern ${pat}; public repos must not echo token identity or capabilities into Actions logs`);
+    }
+  }
+});
+
+runTest('copilot-instructions.md product summary stays in sync with evidence.json', () => {
+  const file = path.join(ROOT, '.github', 'copilot-instructions.md');
+  const src = fs.readFileSync(file, 'utf8');
+  for (const stale of [/49 rules?/i, /42 rules?/i, /42 checks?/i, /TypeScript CLI/i, /\b8 dimensions?\b/i]) {
+    assert.doesNotMatch(src, stale,
+      `copilot-instructions.md still contains stale claim matching ${stale}; product is currently 58 checks across 6 core + 2 extended dimensions, shell + JS implementation`);
+  }
+  assert.match(src, /58 (?:total|checks?)|51 (?:deterministic )?(?:core )?checks?|6 core dimensions/i,
+    'copilot-instructions.md must reference current check/dimension counts');
+});
+
 process.stdout.write(`${passed}/${total} tests passed\n`);
 process.exit(passed === total ? 0 : 1);
