@@ -61,7 +61,7 @@ In Claude Code, run `/al` for the interactive scan-fix-report flow.
 
 ```bash
 agentlint --version
-agentlint check --help
+agentlint help
 ```
 
 ## Uninstall
