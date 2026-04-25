@@ -101,7 +101,7 @@ fi
   "commit message cannot be empty" \
   "conventional-commit format requires a non-empty subject" \
   'scripts/committer "feat: <description>" <file>...' \
-  "configs/commitlint.config.cjs · docs/internal/rules-style.md §3.1"
+  "commitlint.config.cjs · docs/rules-style.md §3.1"
 
 # Guard against swapped args: single word with file-like extension
 if [[ "$MSG" != *" "* ]] && [[ "$MSG" =~ \.(ts|js|md|json|sh)$ || "$MSG" == */* ]]; then
@@ -135,7 +135,7 @@ for file in "${FILES[@]}"; do
     "refusing to stage '$file' — node_modules/ is blocked" \
     "installed dependencies are regenerated from the lockfile; they never ship in source" \
     "ensure node_modules/ is in .gitignore; commit only package.json + lockfile" \
-    "configs/node/.gitignore · configs/ts/.gitignore"
+    ".gitignore (project root)"
   # File must exist in working tree or git index (handles deletions)
   if [[ ! -e "$file" ]] && ! git ls-files --error-unmatch "$file" &>/dev/null; then
     die_format \
