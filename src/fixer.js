@@ -354,9 +354,78 @@ function createBackupRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'al-backup-'));
 }
 
-function backupFile(originalPath, projectDir, backupRoot, backedSet) {
+function createTransaction(backupRoot) {
+  return {
+    backupRoot,
+    backedSet: new Set(),
+    backups: [],
+    createdPaths: [],
+    rolledBack: false,
+  };
+}
+
+function trackCreatedDirectory(projectDir, dirPath, transaction) {
+  const abs = path.resolve(dirPath); // nosemgrep: path-join-resolve-traversal
+  assertRealPathInsideProject(projectDir, abs);
+  if (fs.existsSync(abs)) return;
+
+  const missing = [];
+  let cursor = abs;
+  while (cursor !== projectDir && !fs.existsSync(cursor)) {
+    missing.unshift(cursor);
+    const next = path.dirname(cursor);
+    if (next === cursor) break;
+    cursor = next;
+  }
+  for (const candidate of missing) {
+    transaction.createdPaths.push(candidate);
+  }
+}
+
+function trackCreatedPath(projectDir, targetPath, transaction) {
+  const abs = path.resolve(targetPath); // nosemgrep: path-join-resolve-traversal
+  assertRealPathInsideProject(projectDir, abs);
+  if (fs.existsSync(abs)) return;
+  transaction.createdPaths.push(abs);
+}
+
+function rollbackTransaction(projectDir, transaction) {
+  if (transaction.rolledBack) return;
+  transaction.rolledBack = true;
+
+  for (let i = transaction.backups.length - 1; i >= 0; i -= 1) {
+    const { originalPath, backupPath } = transaction.backups[i];
+    try {
+      assertRealPathInsideProject(projectDir, originalPath);
+      fs.mkdirSync(path.dirname(originalPath), { recursive: true });
+      fs.copyFileSync(backupPath, originalPath);
+    } catch (_) {
+      // Best-effort rollback. The command still reports failure to the caller.
+    }
+  }
+
+  for (let i = transaction.createdPaths.length - 1; i >= 0; i -= 1) {
+    const createdPath = transaction.createdPaths[i];
+    try {
+      assertRealPathInsideProject(projectDir, createdPath);
+      if (fs.existsSync(createdPath)) {
+        const stat = fs.lstatSync(createdPath);
+        if (stat.isDirectory() && !stat.isSymbolicLink()) {
+          fs.rmdirSync(createdPath);
+        } else {
+          fs.rmSync(createdPath, { force: true });
+        }
+      }
+    } catch (_) {
+      // Directory may be non-empty because it predated a nested write or was
+      // populated by another process. Leave it rather than deleting user data.
+    }
+  }
+}
+
+function backupFile(originalPath, projectDir, transaction) {
   const abs = path.resolve(originalPath); // nosemgrep: path-join-resolve-traversal
-  if (backedSet.has(abs)) {
+  if (transaction.backedSet.has(abs)) {
     return;
   }
 
@@ -374,10 +443,11 @@ function backupFile(originalPath, projectDir, backupRoot, backedSet) {
   if (rel.startsWith('..')) {
     throw new Error(`Refusing backup path traversal: ${rel}`);
   }
-  const destination = path.join(backupRoot, rel); // nosemgrep: path-join-resolve-traversal
+  const destination = path.join(transaction.backupRoot, rel); // nosemgrep: path-join-resolve-traversal
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(abs, destination);
-  backedSet.add(abs);
+  transaction.backedSet.add(abs);
+  transaction.backups.push({ originalPath: abs, backupPath: destination });
 }
 
 function normalizeReference(raw) {
@@ -591,7 +661,7 @@ function getItem(item) {
   };
 }
 
-function executeAssistedF1(projectDir, projectName) {
+function executeAssistedF1(projectDir, projectName, transaction) {
   const target = path.join(projectDir, 'CLAUDE.md'); // nosemgrep: path-join-resolve-traversal
   assertRealPathInsideProject(projectDir, target);
 
@@ -619,6 +689,7 @@ function executeAssistedF1(projectDir, projectName) {
   // flag 'wx' = O_EXCL|O_CREAT: fails atomically if file exists, and on POSIX
   // refuses to follow symlinks at open-time (defense-in-depth with lstat check above).
   try {
+    trackCreatedPath(projectDir, target, transaction);
     fs.writeFileSync(target, template, { flag: 'wx' });
   } catch (err) {
     return {
@@ -632,7 +703,7 @@ function executeAssistedF1(projectDir, projectName) {
   };
 }
 
-function executeAssistedC2(projectDir, projectName) {
+function executeAssistedC2(projectDir, projectName, transaction) {
   const target = path.join(projectDir, 'HANDOFF.md'); // nosemgrep: path-join-resolve-traversal
   assertRealPathInsideProject(projectDir, target);
 
@@ -662,6 +733,7 @@ function executeAssistedC2(projectDir, projectName) {
   // flag 'wx' = O_EXCL|O_CREAT: fails atomically if file exists, and on POSIX
   // refuses to follow symlinks at open-time (defense-in-depth with lstat check above).
   try {
+    trackCreatedPath(projectDir, target, transaction);
     fs.writeFileSync(target, content, { flag: 'wx' });
   } catch (err) {
     return {
@@ -675,7 +747,7 @@ function executeAssistedC2(projectDir, projectName) {
   };
 }
 
-function executeAutoW11(projectDir) {
+function executeAutoW11(projectDir, transaction) {
   const templatePath = path.join(__dirname, '..', 'templates', 'ci', 'test-required.yml');
   const targetDir = path.join(projectDir, '.github', 'workflows'); // nosemgrep: path-join-resolve-traversal
   const targetPath = path.join(targetDir, 'test-required.yml'); // nosemgrep: path-join-resolve-traversal
@@ -707,9 +779,11 @@ function executeAutoW11(projectDir) {
     return { status: 'failed', detail: 'Skipped: .github/workflows/test-required.yml already exists.' };
   } catch (_) { /* ENOENT — safe to create */ }
 
-  fs.mkdirSync(targetDir, { recursive: true });
-  const template = fs.readFileSync(templatePath, 'utf8');
   try {
+    trackCreatedDirectory(projectDir, targetDir, transaction);
+    fs.mkdirSync(targetDir, { recursive: true });
+    trackCreatedPath(projectDir, targetPath, transaction);
+    const template = fs.readFileSync(templatePath, 'utf8');
     fs.writeFileSync(targetPath, template, { flag: 'wx' });
   } catch (err) {
     return { status: 'failed', detail: `Failed to create test-required.yml: ${err.message}` };
@@ -717,7 +791,7 @@ function executeAutoW11(projectDir) {
   return { status: 'fixed', detail: 'Created .github/workflows/test-required.yml from template.' };
 }
 
-function executeAssistedH8(projectDir) {
+function executeAssistedH8(projectDir, transaction) {
   const templatePath = path.join(__dirname, '..', 'templates', 'hooks', '_shared.sh');
   const hooksDir = path.join(projectDir, 'hooks'); // nosemgrep: path-join-resolve-traversal
   const targetPath = path.join(hooksDir, '_shared.sh'); // nosemgrep: path-join-resolve-traversal
@@ -753,6 +827,7 @@ function executeAssistedH8(projectDir) {
 
   const template = fs.readFileSync(templatePath, 'utf8');
   try {
+    trackCreatedPath(projectDir, targetPath, transaction);
     fs.writeFileSync(targetPath, template, { flag: 'wx' });
   } catch (err) {
     return { status: 'failed', detail: `Failed to create hooks/_shared.sh: ${err.message}` };
@@ -760,9 +835,9 @@ function executeAssistedH8(projectDir) {
   return { status: 'fixed', detail: 'Created hooks/_shared.sh with fail_with_help() function. Add: source "$(dirname "$0")/_shared.sh" to your hook files.' };
 }
 
-function executeAutoFix(checkId, projectDir, filePath, backupRoot, backedSet) {
+function executeAutoFix(checkId, projectDir, filePath, transaction) {
   if (checkId === 'W11') {
-    return executeAutoW11(projectDir);
+    return executeAutoW11(projectDir, transaction);
   }
 
   if (!filePath) {
@@ -811,7 +886,7 @@ function executeAutoFix(checkId, projectDir, filePath, backupRoot, backedSet) {
         detail: 'No broken references found.',
       };
     }
-    backupFile(filePath, projectDir, backupRoot, backedSet);
+    backupFile(filePath, projectDir, transaction);
     assertRealPathInsideProject(projectDir, filePath);
     fs.writeFileSync(filePath, result.content);
     return {
@@ -828,7 +903,7 @@ function executeAutoFix(checkId, projectDir, filePath, backupRoot, backedSet) {
         detail: 'No identity language lines found.',
       };
     }
-    backupFile(filePath, projectDir, backupRoot, backedSet);
+    backupFile(filePath, projectDir, transaction);
     assertRealPathInsideProject(projectDir, filePath);
     fs.writeFileSync(filePath, result.content);
     return {
@@ -876,7 +951,7 @@ function run() {
   }
 
   const backupDir = createBackupRoot();
-  const backedSet = new Set();
+  const transaction = createTransaction(backupDir);
   const executed = [];
   const itemsById = new Map();
 
@@ -908,6 +983,11 @@ function run() {
     args.selectedItems = args.selectedItems.concat(resolvedIds);
   }
 
+  if (executed.some((e) => e && e.status === 'failed')) {
+    rollbackTransaction(projectDir, transaction);
+    args.selectedItems = [];
+  }
+
   for (const selectedId of args.selectedItems) {
     const selected = itemsById.get(selectedId);
     if (!selected) {
@@ -917,52 +997,45 @@ function run() {
         status: 'failed',
         detail: `No plan item found for selected id: ${selectedId}.`,
       });
-      continue;
+      rollbackTransaction(projectDir, transaction);
+      break;
     }
 
     const projectName = path.basename(projectDir);
     const entryFile = resolveEntryFile(projectDir);
+    let result;
 
-    if (selected.fixType === 'auto') {
-      const result = executeAutoFix(selected.check_id, projectDir, entryFile, backupDir, backedSet);
-      executed.push(buildExecutedRecord(selected, result.status, result.detail));
-      continue;
+    try {
+      if (selected.fixType === 'auto') {
+        result = executeAutoFix(selected.check_id, projectDir, entryFile, transaction);
+      } else if (selected.fixType === 'assisted') {
+        if (selected.check_id === 'F1') {
+          result = executeAssistedF1(projectDir, projectName, transaction);
+        } else if (selected.check_id === 'C2') {
+          result = executeAssistedC2(projectDir, projectName, transaction);
+        } else if (selected.check_id === 'H8') {
+          result = executeAssistedH8(projectDir, transaction);
+        } else if (selected.check_id === 'F5' || selected.check_id === 'I5') {
+          result = executeAutoFix(selected.check_id, projectDir, entryFile, transaction);
+        } else {
+          result = { status: 'failed', detail: `No assisted strategy for ${selected.check_id}.` };
+        }
+      } else {
+        result = { status: 'guided', detail: renderGuidedDetail(selected.item, evidenceMap) };
+      }
+    } catch (err) {
+      result = { status: 'failed', detail: err.message };
     }
 
-    if (selected.fixType === 'assisted') {
-      if (selected.check_id === 'F1') {
-        const result = executeAssistedF1(projectDir, projectName);
-        executed.push(buildExecutedRecord(selected, result.status, result.detail));
-        continue;
-      }
-
-      if (selected.check_id === 'C2') {
-        const result = executeAssistedC2(projectDir, projectName);
-        executed.push(buildExecutedRecord(selected, result.status, result.detail));
-        continue;
-      }
-
-      if (selected.check_id === 'H8') {
-        const result = executeAssistedH8(projectDir);
-        executed.push(buildExecutedRecord(selected, result.status, result.detail));
-        continue;
-      }
-
-      if (selected.check_id === 'F5' || selected.check_id === 'I5') {
-        const result = executeAutoFix(selected.check_id, projectDir, entryFile, backupDir, backedSet);
-        executed.push(buildExecutedRecord(selected, result.status, result.detail));
-        continue;
-      }
-
-      executed.push(buildExecutedRecord(selected, 'failed', `No assisted strategy for ${selected.check_id}.`));
-      continue;
+    executed.push(buildExecutedRecord(selected, result.status, result.detail));
+    if (result.status === 'failed') {
+      rollbackTransaction(projectDir, transaction);
+      break;
     }
-
-    const detail = renderGuidedDetail(selected.item, evidenceMap);
-    executed.push(buildExecutedRecord(selected, 'guided', detail));
   }
 
-  process.stdout.write(JSON.stringify({ executed, backup_dir: backupDir }, null, 2) + '\n');
+  const rolledBack = transaction.rolledBack;
+  process.stdout.write(JSON.stringify({ executed, backup_dir: backupDir, rolled_back: rolledBack }, null, 2) + '\n');
 
   // Exit non-zero when any executed item reports failure. Previously the
   // process always exited 0, so CI scripts / local callers treated a

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bootstrap.sh — Initialize project automation from templates
-# Usage: bootstrap.sh --lang <ts|python> [--runner bun] [--visibility public|private] [--workflows-only] [--init-git] [--with-auto-push] <project-path>
+# Usage: bootstrap.sh --lang <ts|python> [--runner bun] [--visibility public|private] [--workflows-only] [--init-git] [--with-auto-push] [--project-dir <path>] [project-path]
 
 set -euo pipefail
 
@@ -26,11 +26,13 @@ require_value() {
 # --- Parse args ---
 LANG=""; RUNNER=""; WORKFLOWS_ONLY=false; VISIBILITY="private"; PROJECT=""
 PKG_MANAGER_OVERRIDE=""; NO_INSTALL=false; FORCE=false; INIT_GIT=false; WITH_AUTO_PUSH=false
+PROJECT_DIR_EXPLICIT=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --lang)           require_value --lang "${2-}"; LANG="$2"; shift 2 ;;
     --runner)         require_value --runner "${2-}"; RUNNER="$2"; shift 2 ;;
     --workflows-only) WORKFLOWS_ONLY=true; shift ;;
+    --project-dir)    require_value --project-dir "${2-}"; PROJECT="$2"; PROJECT_DIR_EXPLICIT=true; shift 2 ;;
     --visibility)     require_value --visibility "${2-}"; VISIBILITY="$2"; shift 2 ;;
     --pkg-manager)    require_value --pkg-manager "${2-}"; PKG_MANAGER_OVERRIDE="$2"; shift 2 ;;
     --no-install)     NO_INSTALL=true; shift ;;
@@ -48,8 +50,8 @@ done
 # future hook that wants to read it without another parser pass.
 export RUNNER
 
-[[ -z "$LANG" ]] && die "usage: bootstrap.sh --lang <ts|python|node> [--runner bun] [--visibility public|private] [--workflows-only] [--pkg-manager <auto|npm|pnpm|yarn|bun>] [--no-install] [--force] [--init-git] [--with-auto-push] <project-path>"
-[[ -z "$PROJECT" ]] && die "project path required"
+[[ -z "$LANG" ]] && die "usage: bootstrap.sh --lang <ts|python|node> [--runner bun] [--visibility public|private] [--workflows-only] [--project-dir <path>] [--pkg-manager <auto|npm|pnpm|yarn|bun>] [--no-install] [--force] [--init-git] [--with-auto-push] [project-path]"
+[[ -z "$PROJECT" ]] && PROJECT="."
 [[ "$LANG" != "ts" && "$LANG" != "python" && "$LANG" != "node" ]] && die "lang must be 'ts', 'python', or 'node'"
 [[ "$VISIBILITY" != "public" && "$VISIBILITY" != "private" ]] && die "--visibility must be 'public' or 'private'"
 [[ -n "$PKG_MANAGER_OVERRIDE" ]] \
@@ -61,17 +63,36 @@ export RUNNER
 
 realpath_portable() {
   local target="$1"
-  if readlink -f "$target" >/dev/null 2>&1; then
-    readlink -f "$target"
+  if [[ -d "$target" ]]; then
+    (cd "$target" && pwd -P)
   else
-    python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$target"
+    local dir base
+    dir="$(dirname "$target")"
+    base="$(basename "$target")"
+    while [[ ! -d "$dir" ]]; do
+      base="$(basename "$dir")/$base"
+      dir="$(dirname "$dir")"
+    done
+    (cd "$dir" && printf '%s/%s\n' "$(pwd -P)" "$base")
   fi
 }
 
 PROJECT="$(realpath_portable "$PROJECT")"
+if git -C "$PROJECT" rev-parse --is-inside-work-tree >/dev/null 2>&1 && [[ "$PROJECT_DIR_EXPLICIT" != true ]]; then
+  GIT_TOPLEVEL="$(git -C "$PROJECT" rev-parse --show-toplevel)"
+  GIT_TOPLEVEL="$(realpath_portable "$GIT_TOPLEVEL")"
+  if [[ "$GIT_TOPLEVEL" != "$PROJECT" ]]; then
+    info "using git top-level as project root: $GIT_TOPLEVEL"
+  fi
+  PROJECT="$GIT_TOPLEVEL"
+fi
 PROJECT_ROOT="$PROJECT"
 PROJECT_NAME="$(basename "$PROJECT")"
 BACKUP_TS="$(date +%Y%m%d%H%M%S)"
+SETUP_COMMITTED=false
+SETUP_CREATED_PATHS=()
+SETUP_BACKUP_SRCS=()
+SETUP_BACKUP_DESTS=()
 
 rel_project_path() {
   local target="$1"
@@ -88,6 +109,9 @@ PY
 assert_project_path() {
   local target="$1"
   local resolved
+  if [[ -L "$target" ]]; then
+    die "refusing to write symlink: $(rel_project_path "$target")"
+  fi
   resolved="$(realpath_portable "$target")"
   case "$resolved" in
     "$PROJECT_ROOT"|"$PROJECT_ROOT"/*) return 0 ;;
@@ -95,8 +119,79 @@ assert_project_path() {
   esac
 }
 
+path_already_backed_up() {
+  local dest="$1"
+  local i
+  for ((i = 0; i < ${#SETUP_BACKUP_DESTS[@]}; i += 1)); do
+    [[ "${SETUP_BACKUP_DESTS[$i]}" == "$dest" ]] && return 0
+  done
+  return 1
+}
+
+path_marked_created() {
+  local dest="$1"
+  local i
+  for ((i = 0; i < ${#SETUP_CREATED_PATHS[@]}; i += 1)); do
+    [[ "${SETUP_CREATED_PATHS[$i]}" == "$dest" ]] && return 0
+  done
+  return 1
+}
+
+track_path_before_write() {
+  local dest="$1"
+  assert_project_path "$dest"
+  [[ -e "$dest" || -L "$dest" ]] && return 0
+  SETUP_CREATED_PATHS+=("$dest")
+}
+
+track_dir_before_mkdir() {
+  local dir="$1"
+  assert_project_path "$dir"
+  [[ -e "$dir" ]] && return 0
+  local cursor="$dir"
+  local missing=()
+  while [[ "$cursor" != "$PROJECT_ROOT" && ! -e "$cursor" ]]; do
+    missing+=("$cursor")
+    cursor="$(dirname "$cursor")"
+  done
+  local i
+  for ((i = ${#missing[@]} - 1; i >= 0; i -= 1)); do
+    SETUP_CREATED_PATHS+=("${missing[$i]}")
+  done
+}
+
+rollback_setup() {
+  local rc="$1"
+  [[ "$SETUP_COMMITTED" == true ]] && exit "$rc"
+  [[ ${#SETUP_CREATED_PATHS[@]} -eq 0 && ${#SETUP_BACKUP_SRCS[@]} -eq 0 ]] && exit "$rc"
+  warn "setup failed; rolling back partial writes"
+
+  local i dest backup target
+  for ((i = ${#SETUP_BACKUP_SRCS[@]} - 1; i >= 0; i -= 1)); do
+    backup="${SETUP_BACKUP_SRCS[$i]}"
+    dest="${SETUP_BACKUP_DESTS[$i]}"
+    if [[ -e "$backup" ]]; then
+      cp -p "$backup" "$dest" 2>/dev/null || true
+      rm -f "$backup" 2>/dev/null || true
+    fi
+  done
+
+  for ((i = ${#SETUP_CREATED_PATHS[@]} - 1; i >= 0; i -= 1)); do
+    target="${SETUP_CREATED_PATHS[$i]}"
+    if [[ -d "$target" && ! -L "$target" ]]; then
+      rmdir "$target" 2>/dev/null || true
+    else
+      rm -f "$target" 2>/dev/null || true
+    fi
+  done
+
+  exit "$rc"
+}
+trap 'rollback_setup "$?"' EXIT
+
 safe_mkdir() {
   assert_project_path "$1"
+  track_dir_before_mkdir "$1"
   mkdir -p "$1"
 }
 
@@ -106,17 +201,28 @@ backup_if_different() {
   cmp -s "$src" "$dest" && return 0
   local backup="${dest}.al-backup-${BACKUP_TS}"
   assert_project_path "$backup"
-  cp -p "$dest" "$backup"
-  info "backed up $(rel_project_path "$dest") -> $(rel_project_path "$backup")"
+  if ! path_already_backed_up "$dest"; then
+    track_path_before_write "$backup"
+    cp -p "$dest" "$backup"
+    SETUP_BACKUP_SRCS+=("$backup")
+    SETUP_BACKUP_DESTS+=("$dest")
+    info "backed up $(rel_project_path "$dest") -> $(rel_project_path "$backup")"
+  fi
 }
 
 backup_before_inplace_write() {
   local dest="$1"
   [[ -e "$dest" ]] || return 0
+  path_marked_created "$dest" && return 0
   local backup="${dest}.al-backup-${BACKUP_TS}"
   assert_project_path "$backup"
-  cp -p "$dest" "$backup"
-  info "backed up $(rel_project_path "$dest") -> $(rel_project_path "$backup")"
+  if ! path_already_backed_up "$dest"; then
+    track_path_before_write "$backup"
+    cp -p "$dest" "$backup"
+    SETUP_BACKUP_SRCS+=("$backup")
+    SETUP_BACKUP_DESTS+=("$dest")
+    info "backed up $(rel_project_path "$dest") -> $(rel_project_path "$backup")"
+  fi
 }
 
 copy_template() {
@@ -125,6 +231,7 @@ copy_template() {
   assert_project_path "$dest"
   safe_mkdir "$(dirname "$dest")"
   backup_if_different "$src" "$dest"
+  track_path_before_write "$dest"
   cp "$src" "$dest"
   info "$label"
 }
@@ -136,6 +243,7 @@ copy_tree_template() {
   if [[ -e "$dest" ]]; then
     info "skipped $label (exists)"
   else
+    track_path_before_write "$dest"
     cp -R "$src" "$dest"
     info "$label"
   fi
@@ -388,6 +496,7 @@ fi
 # Early exit if --workflows-only: skip GitHub config, AI-friendly docs, hooks, pre-commit stack.
 if [[ "$WORKFLOWS_ONLY" == true ]]; then
   printf "\n${BOLD}Done (workflows only).${NC}\n"
+  SETUP_COMMITTED=true
   exit 0
 fi
 
@@ -467,6 +576,7 @@ fi
 LABELER="$PROJECT/.github/labeler.yml"
 if [[ ! -f "$LABELER" ]]; then
   assert_project_path "$LABELER"
+  track_path_before_write "$LABELER"
   {
     # `core` = application code. Candidate dir names span ecosystems:
     #   src/ lib/    — JS/TS/Rust
@@ -546,6 +656,7 @@ cd "$PROJECT"
 if [[ ( "$LANG" == "ts" || "$LANG" == "node" ) ]] && [[ ! -f package.json ]]; then
   # Create minimal package.json for husky + commitlint
   assert_project_path "$PROJECT/package.json"
+  track_path_before_write "$PROJECT/package.json"
   cat > package.json <<'PKGJSON'
 {
   "private": true,
@@ -595,6 +706,7 @@ if [[ "$LANG" == "ts" ]] && [[ -f package.json ]]; then
   fi
 
   assert_project_path "$PROJECT/package.json"
+  backup_before_inplace_write "$PROJECT/package.json"
   check_exists=$(LANG_ARG="$LANG" python3 -c "
 import json
 import os
@@ -637,6 +749,7 @@ else:
   fi
   # Inject lint-staged config if missing
   if ! grep -q 'lint-staged' package.json 2>/dev/null || ! python3 -c "import json; d=json.load(open('package.json')); assert 'lint-staged' in d" 2>/dev/null; then
+    backup_before_inplace_write "$PROJECT/package.json"
     python3 -c "
 import json
 import os
@@ -792,3 +905,4 @@ else
   printf "  3. Open a test PR to verify CI\n"
   printf "  4. Tag a release: git tag vX.Y.Z && git push --tags\n\n"
 fi
+SETUP_COMMITTED=true
