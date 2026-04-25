@@ -40,6 +40,12 @@ Then start a new Claude Code session and run:
 
 That's it. AgentLint scans your repo, scores it across 6 core dimensions (plus 2 opt-in extended analyzers when available), shows exactly what's wrong, and fixes what it can.
 
+`npx agentlint-ai init` configures the Claude Code plugin from the npx cache; it does not leave a persistent `agentlint` binary on PATH. For standalone CLI use in later shells, run:
+
+```bash
+npm install -g agentlint-ai
+```
+
 **Other install paths** (npm global, curl, no-side-effects for corporate / CI): see **[INSTALL.md](./INSTALL.md)** — the canonical install reference, kept terse so AI agents can consume it directly.
 
 **One note on `npm install -g`**: npm 9+ silences `postinstall` stdout by default, so the logo + env check is invisible on plain `npm install -g agentlint-ai`. Either use `npx agentlint-ai init` (above) or add `--foreground-scripts` to the npm command. Full rationale in [INSTALL.md](./INSTALL.md).
@@ -47,6 +53,7 @@ That's it. AgentLint scans your repo, scores it across 6 core dimensions (plus 2
 **No Claude Code?** The CLI works standalone:
 
 ```bash
+npm install -g agentlint-ai
 agentlint check
 agentlint fix W11
 agentlint setup --lang ts .

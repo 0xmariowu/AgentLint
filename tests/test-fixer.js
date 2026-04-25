@@ -2,7 +2,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
-const { spawnSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -32,8 +32,11 @@ function makeTempProject(files) {
     fs.mkdirSync(path.dirname(fullPath), { recursive: true });
     fs.writeFileSync(fullPath, content);
   }
-  // Fixer requires a git repo
-  fs.mkdirSync(path.join(dir, '.git'), { recursive: true });
+  execFileSync('git', ['init', '-q'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.email', 'test@example.com'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'AgentLint Test'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['add', '-A'], { cwd: dir, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-q', '--allow-empty', '-m', 'init'], { cwd: dir, stdio: 'ignore' });
   return dir;
 }
 

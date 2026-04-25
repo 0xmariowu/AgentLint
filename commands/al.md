@@ -183,9 +183,18 @@ users can re-run `/al` against other projects afterwards.
 
 ```bash
 # project_path is the canonical identity (avoids basename collisions
-# like org1/app vs org2/app). Fall back to `.project` only for legacy
-# JSONL records that predate the project_path schema.
-UNIQUE_PATHS="$(jq -r '.project_path // .project' "$RUN_DIR/scan.jsonl" | sort -u)"
+# like org1/app vs org2/app). Resolve every candidate to its real path
+# before selection so symlinked/duplicate paths cannot point fixer at
+# a different repo than the one the scan reported.
+REALPATH_CMD='import os,sys; print(os.path.realpath(sys.argv[1]))'
+UNIQUE_PATHS="$(
+  jq -r '.project_path // .project // empty' "$RUN_DIR/scan.jsonl" \
+    | while IFS= read -r candidate; do
+        [ -z "$candidate" ] && continue
+        python3 -c "$REALPATH_CMD" "$candidate"
+      done \
+    | sort -u
+)"
 PROJECT_COUNT="$(printf '%s\n' "$UNIQUE_PATHS" | grep -c .)"
 ```
 
@@ -196,15 +205,30 @@ If `PROJECT_COUNT` is greater than `1`: AskUserQuestion with **one
 option per absolute path**. Label each option with the basename plus
 a short parent-dir suffix for disambiguation so colliding basenames
 stay distinguishable (e.g. `app (org1/app)` vs `app (org2/app)`).
-Record the user's pick in `SELECTED_PATH` (absolute).
+Record the user's pick in `SELECTED_PATH` (absolute). If two or more
+canonical paths remain, this is ambiguous by definition; list every
+candidate and ask instead of silently picking one.
 
 ```bash
-PROJECT_DIR="$SELECTED_PATH"
-SELECTED_PROJECT="$(basename "$SELECTED_PATH")"
+PROJECT_DIR="$(python3 -c "$REALPATH_CMD" "$SELECTED_PATH")"
+SELECTED_PROJECT="$(basename "$PROJECT_DIR")"
 if [ ! -d "$PROJECT_DIR" ]; then
   echo "Error: selected project path does not exist: $PROJECT_DIR" >&2
   exit 1
 fi
+if ! git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "Error: selected project path is not a git repo: $PROJECT_DIR" >&2
+  exit 1
+fi
+GIT_TOP="$(git -C "$PROJECT_DIR" rev-parse --show-toplevel)"
+GIT_TOP="$(python3 -c "$REALPATH_CMD" "$GIT_TOP")"
+case "$PROJECT_DIR" in
+  "$GIT_TOP"|"$GIT_TOP"/*) ;;
+  *)
+    echo "Error: selected project path is outside its git worktree: $PROJECT_DIR" >&2
+    exit 1
+    ;;
+esac
 ```
 
 No `find` + basename match — that was the prior footgun: two repos
@@ -355,16 +379,41 @@ directly to avoid basename collision. Produce one deep.jsonl record per
    Deep prompt tasks and process outputs in one loop:
 
 ```bash
-PROJECT_PATHS="$(jq -r '.project_path // empty' "$RUN_DIR/scan.jsonl" | sort -u)"
+: > "$RUN_DIR/deep.jsonl"
+REALPATH_CMD='import os,sys; print(os.path.realpath(sys.argv[1]))'
+PROJECT_PATHS="$(
+  jq -r '.project_path // empty' "$RUN_DIR/scan.jsonl" \
+    | while IFS= read -r candidate; do
+        [ -z "$candidate" ] && continue
+        python3 -c "$REALPATH_CMD" "$candidate"
+      done \
+    | sort -u
+)"
 printf '%s\n' "$PROJECT_PATHS" | while IFS= read -r P_DIR; do
   [ -z "$P_DIR" ] && continue
   [ ! -d "$P_DIR" ] && continue
   P="$(basename "$P_DIR")"
   P_HASH="$(node -e "console.log(require('crypto').createHash('sha1').update(process.argv[1]).digest('hex').slice(0, 8))" "$P_DIR")"
   PREFIX="${P}-${P_HASH}"
+  TASKS_FILE="$RUN_DIR/${PREFIX}.deep-tasks.json"
 
-  tasks=$(node "$AL_DIR/src/deep-analyzer.js" --project-dir "$P_DIR")
-  # ... for each task in "$tasks", launch one AI reviewer ... 
+  node "$AL_DIR/src/deep-analyzer.js" --project-dir "$P_DIR" > "$TASKS_FILE"
+
+  for CHECK in D1 D2 D3; do
+    CHECK_LOWER="$(printf '%s' "$CHECK" | tr '[:upper:]' '[:lower:]')"
+    PROMPT_FILE="$RUN_DIR/${PREFIX}.${CHECK}.prompt.txt"
+    AI_OUT="$RUN_DIR/${PREFIX}.${CHECK_LOWER}-ai.json"
+    jq -er --arg check "$CHECK" '.tasks[] | select(.check_id == $check) | .prompt' "$TASKS_FILE" > "$PROMPT_FILE"
+
+    # Spawn one sonnet subagent with the contents of $PROMPT_FILE.
+    # Write the subagent's raw JSON-only answer to $AI_OUT.
+    [ -s "$AI_OUT" ] || {
+      echo "Error: missing Deep AI output for $P_DIR $CHECK: $AI_OUT" >&2
+      exit 1
+    }
+
+    node "$AL_DIR/src/deep-analyzer.js" --format-result --project "$P" --project-path "$P_DIR" --check "$CHECK" < "$AI_OUT" >> "$RUN_DIR/deep.jsonl"
+  done
 done
 ```
 
@@ -398,7 +447,9 @@ File: {path}
    every project after the first.
 
 4. Convert each AI response to scorer-compatible JSONL, passing both
-   `$P` and `$P_DIR` so the emitted records carry both basename + path:
+   `$P` and `$P_DIR` so the emitted records carry both basename + path.
+   The loop above does this immediately after each `$AI_OUT` file is
+   written; the equivalent explicit commands are:
 
 ```bash
 node "$AL_DIR/src/deep-analyzer.js" --format-result --project "$P" --project-path "$P_DIR" --check D1 < "$RUN_DIR/${PREFIX}.d1-ai.json" >> "$RUN_DIR/deep.jsonl"
