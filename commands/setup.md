@@ -44,6 +44,12 @@ agentlint setup --lang ts --visibility public ~/Projects/my-repo
 agentlint setup --lang python --workflows-only ~/Projects/my-repo
 ```
 
+Non-git directories are refused by default. Use `--init-git` only when
+the user explicitly wants setup to initialize the target as a git repo.
+
+The auto-fix workflow that commits and pushes formatting changes is not
+installed by default. Use `--with-auto-push` only after the user opts in.
+
 ## Steps
 
 1. Detect language from args (`--lang ts|python|node`)

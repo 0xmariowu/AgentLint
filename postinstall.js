@@ -80,7 +80,7 @@ function main() {
   console.log("Detecting environment...");
   console.log();
 
-  step("ok",   "agentlint CLI", `[v${PKG_VERSION} installed]`);
+  step("ok",   "agentlint CLI", `[v${PKG_VERSION} available]`);
 
   if (hasClaudeCode) {
     step("ok", "Claude Code", "[detected]");
@@ -95,9 +95,14 @@ function main() {
   if (!hasClaudeCode) {
     console.log();
     box([
-      "agentlint CLI is ready.                              ",
+      "AgentLint init completed.                            ",
       "                                                     ",
-      "Run in any git repo:                                 ",
+      "Claude Code not found; /al plugin skipped.           ",
+      "                                                     ",
+      "For a persistent CLI, run:                          ",
+      "  npm install -g agentlint-ai                        ",
+      "                                                     ",
+      "Then run in any git repo:                           ",
       "  agentlint check                                    ",
       "  agentlint fix W11                                  ",
       "  agentlint setup --lang ts .                        ",
@@ -117,6 +122,8 @@ function main() {
     execSync(`bash "${path.join(__dirname, "scripts", "install.sh")}"`, { stdio: "inherit" });
   } catch (err) {
     console.error(`\n  Installation failed: ${err.message}`);
+    console.error("  npm package installed; CLI works when agentlint is on PATH.");
+    console.error("  Claude plugin install failed, so /al is not available yet.");
     console.error("  Manual install:");
     console.error(`    bash "${path.join(__dirname, "scripts", "install.sh")}"`);
     console.error();

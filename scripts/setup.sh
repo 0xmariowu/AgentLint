@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # bootstrap.sh — Initialize project automation from templates
-# Usage: bootstrap.sh --lang <ts|python> [--runner bun] [--visibility public|private] [--workflows-only] <project-path>
+# Usage: bootstrap.sh --lang <ts|python> [--runner bun] [--visibility public|private] [--workflows-only] [--init-git] [--with-auto-push] <project-path>
 
 set -euo pipefail
 
@@ -25,7 +25,7 @@ require_value() {
 
 # --- Parse args ---
 LANG=""; RUNNER=""; WORKFLOWS_ONLY=false; VISIBILITY="private"; PROJECT=""
-PKG_MANAGER_OVERRIDE=""; NO_INSTALL=false; FORCE=false
+PKG_MANAGER_OVERRIDE=""; NO_INSTALL=false; FORCE=false; INIT_GIT=false; WITH_AUTO_PUSH=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --lang)           require_value --lang "${2-}"; LANG="$2"; shift 2 ;;
@@ -35,6 +35,8 @@ while [[ $# -gt 0 ]]; do
     --pkg-manager)    require_value --pkg-manager "${2-}"; PKG_MANAGER_OVERRIDE="$2"; shift 2 ;;
     --no-install)     NO_INSTALL=true; shift ;;
     --force)          FORCE=true; shift ;;
+    --init-git)       INIT_GIT=true; shift ;;
+    --with-auto-push) WITH_AUTO_PUSH=true; shift ;;
     -*)               die "unknown flag: $1" ;;
     *)                PROJECT="$1"; shift ;;
   esac
@@ -46,7 +48,7 @@ done
 # future hook that wants to read it without another parser pass.
 export RUNNER
 
-[[ -z "$LANG" ]] && die "usage: bootstrap.sh --lang <ts|python|node> [--runner bun] [--visibility public|private] [--workflows-only] [--pkg-manager <auto|npm|pnpm|yarn|bun>] [--no-install] [--force] <project-path>"
+[[ -z "$LANG" ]] && die "usage: bootstrap.sh --lang <ts|python|node> [--runner bun] [--visibility public|private] [--workflows-only] [--pkg-manager <auto|npm|pnpm|yarn|bun>] [--no-install] [--force] [--init-git] [--with-auto-push] <project-path>"
 [[ -z "$PROJECT" ]] && die "project path required"
 [[ "$LANG" != "ts" && "$LANG" != "python" && "$LANG" != "node" ]] && die "lang must be 'ts', 'python', or 'node'"
 [[ "$VISIBILITY" != "public" && "$VISIBILITY" != "private" ]] && die "--visibility must be 'public' or 'private'"
@@ -57,12 +59,94 @@ export RUNNER
   && die "--pkg-manager must be one of: auto, npm, pnpm, yarn, bun"
 [[ ! -d "$PROJECT" ]] && die "not a directory: $PROJECT"
 
-PROJECT="$(cd "$PROJECT" && pwd)"
-PROJECT_NAME="$(basename "$PROJECT")"
+realpath_portable() {
+  local target="$1"
+  if readlink -f "$target" >/dev/null 2>&1; then
+    readlink -f "$target"
+  else
+    python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$target"
+  fi
+}
 
-# Auto-init if the target isn't a git repo yet.
-if [[ ! -d "$PROJECT/.git" ]]; then
-  warn "target is not a git repo — running 'git init'"
+PROJECT="$(realpath_portable "$PROJECT")"
+PROJECT_ROOT="$PROJECT"
+PROJECT_NAME="$(basename "$PROJECT")"
+BACKUP_TS="$(date +%Y%m%d%H%M%S)"
+
+rel_project_path() {
+  local target="$1"
+  python3 - "$PROJECT_ROOT" "$target" <<'PY'
+import os, sys
+root, target = sys.argv[1:3]
+try:
+    print(os.path.relpath(target, root))
+except ValueError:
+    print(target)
+PY
+}
+
+assert_project_path() {
+  local target="$1"
+  local resolved
+  resolved="$(realpath_portable "$target")"
+  case "$resolved" in
+    "$PROJECT_ROOT"|"$PROJECT_ROOT"/*) return 0 ;;
+    *) die "refusing to write outside project: $(rel_project_path "$target") -> $resolved" ;;
+  esac
+}
+
+safe_mkdir() {
+  assert_project_path "$1"
+  mkdir -p "$1"
+}
+
+backup_if_different() {
+  local src="$1" dest="$2"
+  [[ -e "$dest" ]] || return 0
+  cmp -s "$src" "$dest" && return 0
+  local backup="${dest}.al-backup-${BACKUP_TS}"
+  assert_project_path "$backup"
+  cp -p "$dest" "$backup"
+  info "backed up $(rel_project_path "$dest") -> $(rel_project_path "$backup")"
+}
+
+backup_before_inplace_write() {
+  local dest="$1"
+  [[ -e "$dest" ]] || return 0
+  local backup="${dest}.al-backup-${BACKUP_TS}"
+  assert_project_path "$backup"
+  cp -p "$dest" "$backup"
+  info "backed up $(rel_project_path "$dest") -> $(rel_project_path "$backup")"
+}
+
+copy_template() {
+  local src="$1" dest="$2" label="$3"
+  [[ -e "$src" ]] || return 0
+  assert_project_path "$dest"
+  safe_mkdir "$(dirname "$dest")"
+  backup_if_different "$src" "$dest"
+  cp "$src" "$dest"
+  info "$label"
+}
+
+copy_tree_template() {
+  local src="$1" dest="$2" label="$3"
+  assert_project_path "$dest"
+  safe_mkdir "$(dirname "$dest")"
+  if [[ -e "$dest" ]]; then
+    info "skipped $label (exists)"
+  else
+    cp -R "$src" "$dest"
+    info "$label"
+  fi
+}
+
+# Refuse non-git directories unless the user explicitly opts in.
+if ! git -C "$PROJECT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if [[ "$INIT_GIT" != true ]]; then
+    die "target is not a git repo: $PROJECT (re-run with --init-git to initialize it)"
+  fi
+  warn "target is not a git repo — running 'git init' because --init-git was set"
   git -C "$PROJECT" init --initial-branch=main 2>/dev/null || git -C "$PROJECT" init
 fi
 
@@ -173,6 +257,7 @@ AUTO_PROJECT_DOMAIN="${PROJECT_DOMAIN:-}"
 instantiate_placeholders() {
   local file="$1"
   [ -f "$file" ] || return 0
+  assert_project_path "$file"
   python3 - "$file" "$PROJECT_NAME" "$LANG" "$PKG_MANAGER" "$AUTO_OWNER" "$AUTO_PROJECT_DOMAIN" <<'PY'
 import sys
 p, proj, lang, pkg, owner, domain = sys.argv[1:7]
@@ -189,19 +274,22 @@ PY
 printf "\n${BOLD}Bootstrapping ${PROJECT_NAME} (${LANG})${NC}\n\n"
 
 # --- 1. Workflows ---
-mkdir -p "$PROJECT/.github/workflows"
+safe_mkdir "$PROJECT/.github/workflows"
 
 copy_workflow() {
   local src="$1" label="$2"
   [[ -e "$src" ]] || return 0
+  if [[ "$(basename "$src")" == "autofix.yml" && "$WITH_AUTO_PUSH" != true ]]; then
+    info "skipped workflow: autofix.yml (opt-in; use --with-auto-push)"
+    return 0
+  fi
   # Split declaration from assignment so `basename` failures surface (SC2155).
   local dest
   dest="$PROJECT/.github/workflows/$(basename "$src")"
   if [[ -e "$dest" ]]; then
     info "skipped workflow: $(basename "$src") (exists)"
   else
-    cp "$src" "$dest"
-    info "workflow: $(basename "$src")${label:+ ($label)}"
+    copy_template "$src" "$dest" "workflow: $(basename "$src")${label:+ ($label)}"
   fi
 }
 
@@ -217,17 +305,12 @@ done
 
 # Composite actions
 if [[ -d "$TEMPLATE_DIR/workflows/actions" ]]; then
-  mkdir -p "$PROJECT/.github/actions"
+  safe_mkdir "$PROJECT/.github/actions"
   for action_dir in "$TEMPLATE_DIR/workflows/actions/"*/; do
     [[ -d "$action_dir" ]] || continue
     action_name="$(basename "$action_dir")"
     dest="$PROJECT/.github/actions/$action_name"
-    if [[ -e "$dest" ]]; then
-      info "skipped action: $action_name (exists)"
-    else
-      cp -R "$action_dir" "$dest"
-      info "action: $action_name"
-    fi
+    copy_tree_template "$action_dir" "$dest" "action: $action_name"
   done
 else
   info "skip workflow actions copy: workflows/actions not present"
@@ -235,10 +318,8 @@ fi
 
 # --- 1b. Public repo config (PII protection) ---
 if [[ "$VISIBILITY" == "public" ]]; then
-  cp "$TEMPLATE_DIR/configs/.gitleaks.toml" "$PROJECT/.gitleaks.toml"
-  cp "$TEMPLATE_DIR/configs/.gitleaks.toml.template" "$PROJECT/.gitleaks.toml.template"
-  info ".gitleaks.toml (PII + base rules)"
-  info ".gitleaks.toml.template (project-specific codename rules; edit this file per project)"
+  copy_template "$TEMPLATE_DIR/configs/.gitleaks.toml" "$PROJECT/.gitleaks.toml" ".gitleaks.toml (PII + base rules)"
+  copy_template "$TEMPLATE_DIR/configs/.gitleaks.toml.template" "$PROJECT/.gitleaks.toml.template" ".gitleaks.toml.template (project-specific codename rules; edit this file per project)"
 
   if [[ -n "$AUTO_OWNER" ]]; then
     existing_user_email=$(git -C "$PROJECT" config --local --get user.email || true)
@@ -273,40 +354,34 @@ fi
 
 # --- 1c. .dockerignore for Python (if Dockerfile exists or likely) ---
 if [[ "$LANG" == "python" ]] && [[ ! -f "$PROJECT/.dockerignore" ]]; then
-  cp "$TEMPLATE_DIR/configs/python/.dockerignore" "$PROJECT/.dockerignore"
-  info ".dockerignore (prevents secrets/state in Docker builds)"
+  copy_template "$TEMPLATE_DIR/configs/python/.dockerignore" "$PROJECT/.dockerignore" ".dockerignore (prevents secrets/state in Docker builds)"
 fi
 
 # --- 1d. Universal root-level hygiene files ---
 # Normalize line endings across platforms so Windows contributors don't produce CRLF diffs.
 if [[ ! -f "$PROJECT/.gitattributes" ]] && [[ -f "$TEMPLATE_DIR/.gitattributes" ]]; then
-  cp "$TEMPLATE_DIR/.gitattributes" "$PROJECT/.gitattributes"
-  info ".gitattributes (eol=lf + binary markers)"
+  copy_template "$TEMPLATE_DIR/.gitattributes" "$PROJECT/.gitattributes" ".gitattributes (eol=lf + binary markers)"
 fi
 # ShellCheck defaults so `shellcheck script.sh` uses the same rules CI does.
 if [[ ! -f "$PROJECT/.shellcheckrc" ]] && [[ -f "$TEMPLATE_DIR/.shellcheckrc" ]]; then
-  cp "$TEMPLATE_DIR/.shellcheckrc" "$PROJECT/.shellcheckrc"
-  info ".shellcheckrc (severity=warning)"
+  copy_template "$TEMPLATE_DIR/.shellcheckrc" "$PROJECT/.shellcheckrc" ".shellcheckrc (severity=warning)"
 fi
 
 # --- 1e. Language-specific root configs ---
 if [[ "$LANG" == "ts" || "$LANG" == "node" ]]; then
   if [[ ! -f "$PROJECT/.nvmrc" ]] && [[ -f "$TEMPLATE_DIR/configs/ts/.nvmrc" ]]; then
-    cp "$TEMPLATE_DIR/configs/ts/.nvmrc" "$PROJECT/.nvmrc"
-    info ".nvmrc (pins Node version for nvm users)"
+    copy_template "$TEMPLATE_DIR/configs/ts/.nvmrc" "$PROJECT/.nvmrc" ".nvmrc (pins Node version for nvm users)"
   fi
 fi
 if [[ "$LANG" == "python" ]]; then
   # pyproject.toml template — only drop it in when the project has no pyproject yet.
   # Existing projects manage their own; template is a starting point for greenfield repos.
   if [[ ! -f "$PROJECT/pyproject.toml" ]] && [[ -f "$TEMPLATE_DIR/configs/python/pyproject.toml.template" ]]; then
-    cp "$TEMPLATE_DIR/configs/python/pyproject.toml.template" "$PROJECT/pyproject.toml"
+    copy_template "$TEMPLATE_DIR/configs/python/pyproject.toml.template" "$PROJECT/pyproject.toml" "pyproject.toml (ruff + pytest markers + pyright defaults)"
     instantiate_placeholders "$PROJECT/pyproject.toml"
-    info "pyproject.toml (ruff + pytest markers + pyright defaults)"
   fi
   if [[ ! -f "$PROJECT/pyrightconfig.json" ]] && [[ -f "$TEMPLATE_DIR/configs/python/pyrightconfig.json" ]]; then
-    cp "$TEMPLATE_DIR/configs/python/pyrightconfig.json" "$PROJECT/pyrightconfig.json"
-    info "pyrightconfig.json"
+    copy_template "$TEMPLATE_DIR/configs/python/pyrightconfig.json" "$PROJECT/pyrightconfig.json" "pyrightconfig.json"
   fi
 fi
 
@@ -326,8 +401,7 @@ copy_guarded() {
     info "$label exists, skipping (use --force to overwrite)"
     return 0
   fi
-  cp "$src" "$dest"
-  info "$label"
+  copy_template "$src" "$dest" "$label"
 }
 
 copy_guarded "$TEMPLATE_DIR/configs/github/CODEOWNERS" \
@@ -338,49 +412,51 @@ copy_guarded "$TEMPLATE_DIR/configs/github/pull_request_template.md" \
              "$PROJECT/.github/pull_request_template.md" \
              ".github/pull_request_template.md"
 
-mkdir -p "$PROJECT/.github/ISSUE_TEMPLATE"
+safe_mkdir "$PROJECT/.github/ISSUE_TEMPLATE"
 for f in "$TEMPLATE_DIR/configs/github/ISSUE_TEMPLATE/"*; do
   dest="$PROJECT/.github/ISSUE_TEMPLATE/$(basename "$f")"
   if [[ -f "$dest" && "$FORCE" != true ]]; then
     info ".github/ISSUE_TEMPLATE/$(basename "$f") exists, skipping (use --force to overwrite)"
     continue
   fi
-  cp "$f" "$dest"
+  copy_template "$f" "$dest" ".github/ISSUE_TEMPLATE/$(basename "$f")"
   instantiate_placeholders "$dest"
-  info ".github/ISSUE_TEMPLATE/$(basename "$f")"
 done
 
 for template_doc in CONTRIBUTING.md CODE_OF_CONDUCT.md RELEASING.md SECURITY.md; do
-  if [[ ! -f "$PROJECT/$template_doc" && -f "$TEMPLATE_DIR/configs/$template_doc" ]]; then
-    cp "$TEMPLATE_DIR/configs/$template_doc" "$PROJECT/$template_doc"
-    instantiate_placeholders "$PROJECT/$template_doc"
-    info "$template_doc"
+  if [[ -f "$TEMPLATE_DIR/configs/$template_doc" ]]; then
+    if [[ -f "$PROJECT/$template_doc" && "$FORCE" != true ]]; then
+      info "$template_doc exists, skipping (use --force to overwrite)"
+    else
+      copy_template "$TEMPLATE_DIR/configs/$template_doc" "$PROJECT/$template_doc" "$template_doc"
+      instantiate_placeholders "$PROJECT/$template_doc"
+    fi
   fi
 done
 
 # --- 2d. AI-friendly scaffold templates ---
 for template_doc in CLAUDE.md HANDOFF.md CHANGELOG.md; do
-  if [[ ! -f "$PROJECT/$template_doc" ]]; then
-    cp "$TEMPLATE_DIR/configs/templates/$template_doc" "$PROJECT/$template_doc"
-    instantiate_placeholders "$PROJECT/$template_doc"
-    info "$template_doc (AI-friendly template)"
+  if [[ -f "$TEMPLATE_DIR/configs/templates/$template_doc" ]]; then
+    if [[ -f "$PROJECT/$template_doc" && "$FORCE" != true ]]; then
+      info "$template_doc exists, skipping (use --force to overwrite)"
+    else
+      copy_template "$TEMPLATE_DIR/configs/templates/$template_doc" "$PROJECT/$template_doc" "$template_doc (AI-friendly template)"
+      instantiate_placeholders "$PROJECT/$template_doc"
+    fi
   fi
 done
 
 if [[ ! -f "$PROJECT/INDEX.jsonl.example" ]]; then
-  cp "$TEMPLATE_DIR/configs/templates/INDEX.jsonl.example" "$PROJECT/INDEX.jsonl.example"
-  info "INDEX.jsonl.example"
+  copy_template "$TEMPLATE_DIR/configs/templates/INDEX.jsonl.example" "$PROJECT/INDEX.jsonl.example" "INDEX.jsonl.example"
 fi
 
-mkdir -p "$PROJECT/docs"
+safe_mkdir "$PROJECT/docs"
 if [[ ! -f "$PROJECT/docs/rules-style.md" ]]; then
-  cp "$TEMPLATE_DIR/configs/rules-style.md" "$PROJECT/docs/rules-style.md"
-  info "docs/rules-style.md (AI rule style guide)"
+  copy_template "$TEMPLATE_DIR/configs/rules-style.md" "$PROJECT/docs/rules-style.md" "docs/rules-style.md (AI rule style guide)"
 fi
 
 if [[ ! -f "$PROJECT/docs/ship-boundary.md" ]]; then
-  cp "$TEMPLATE_DIR/configs/ship-boundary.md" "$PROJECT/docs/ship-boundary.md"
-  info "docs/ship-boundary.md (ship/local/never file-provenance boundary)"
+  copy_template "$TEMPLATE_DIR/configs/ship-boundary.md" "$PROJECT/docs/ship-boundary.md" "docs/ship-boundary.md (ship/local/never file-provenance boundary)"
 fi
 
 # --- 3. Generate labeler config ---
@@ -390,6 +466,7 @@ fi
 # user didn't ask for.
 LABELER="$PROJECT/.github/labeler.yml"
 if [[ ! -f "$LABELER" ]]; then
+  assert_project_path "$LABELER"
   {
     # `core` = application code. Candidate dir names span ecosystems:
     #   src/ lib/    — JS/TS/Rust
@@ -436,36 +513,30 @@ fi
 # route commit-gate through pre-commit + conventional-pre-commit (see
 # .pre-commit-config.yaml.template) which is the native Python-ecosystem
 # approach and avoids forcing Node + npm on Python-only developer machines.
-mkdir -p "$PROJECT/scripts"
-cp "$TEMPLATE_DIR/scripts/check-deps.sh" "$PROJECT/scripts/check-deps.sh"
+safe_mkdir "$PROJECT/scripts"
+copy_template "$TEMPLATE_DIR/scripts/check-deps.sh" "$PROJECT/scripts/check-deps.sh" "scripts/check-deps.sh"
 chmod +x "$PROJECT/scripts/check-deps.sh"
-info "scripts/check-deps.sh"
-cp "$TEMPLATE_DIR/scripts/fill-placeholders.sh" "$PROJECT/scripts/fill-placeholders.sh"
+copy_template "$TEMPLATE_DIR/scripts/fill-placeholders.sh" "$PROJECT/scripts/fill-placeholders.sh" "scripts/fill-placeholders.sh"
 chmod +x "$PROJECT/scripts/fill-placeholders.sh"
-info "scripts/fill-placeholders.sh"
 
 if [[ "$LANG" != "python" ]]; then
-  cp "$TEMPLATE_DIR/hooks/committer" "$PROJECT/scripts/committer"
+  copy_template "$TEMPLATE_DIR/hooks/committer" "$PROJECT/scripts/committer" "scripts/committer"
   chmod +x "$PROJECT/scripts/committer"
-  info "scripts/committer"
 
   # Husky hooks
-  mkdir -p "$PROJECT/.husky"
+  safe_mkdir "$PROJECT/.husky"
   for hook in "$TEMPLATE_DIR/hooks/husky/"*; do
     [ -f "$hook" ] || continue
     hook_name="$(basename "$hook")"
-    cp "$hook" "$PROJECT/.husky/$hook_name"
+    copy_template "$hook" "$PROJECT/.husky/$hook_name" ".husky/$hook_name"
     chmod +x "$PROJECT/.husky/$hook_name"
-    info ".husky/$hook_name"
   done
 
   # Commitlint config — use .cjs if project has "type": "module"
   if python3 -c "import json,sys; sys.exit(0 if json.load(open('$PROJECT/package.json')).get('type')=='module' else 1)" 2>/dev/null; then
-    cp "$TEMPLATE_DIR/configs/commitlint.config.cjs" "$PROJECT/commitlint.config.cjs"
-    info "commitlint.config.cjs (ESM project)"
+    copy_template "$TEMPLATE_DIR/configs/commitlint.config.cjs" "$PROJECT/commitlint.config.cjs" "commitlint.config.cjs (ESM project)"
   else
-    cp "$TEMPLATE_DIR/configs/commitlint.config.js" "$PROJECT/commitlint.config.js"
-    info "commitlint.config.js"
+    copy_template "$TEMPLATE_DIR/configs/commitlint.config.js" "$PROJECT/commitlint.config.js" "commitlint.config.js"
   fi
 fi
 
@@ -474,6 +545,7 @@ cd "$PROJECT"
 
 if [[ ( "$LANG" == "ts" || "$LANG" == "node" ) ]] && [[ ! -f package.json ]]; then
   # Create minimal package.json for husky + commitlint
+  assert_project_path "$PROJECT/package.json"
   cat > package.json <<'PKGJSON'
 {
   "private": true,
@@ -519,10 +591,10 @@ if [[ "$LANG" == "ts" ]] && [[ -f package.json ]]; then
   fi
 
   if [[ ! -f vitest.config.ts ]] && grep -q '"vitest"' package.json; then
-    cp "$TEMPLATE_DIR/configs/vitest.config.ts.template" ./vitest.config.ts
-    info "vitest.config.ts"
+    copy_template "$TEMPLATE_DIR/configs/vitest.config.ts.template" "$PROJECT/vitest.config.ts" "vitest.config.ts"
   fi
 
+  assert_project_path "$PROJECT/package.json"
   check_exists=$(LANG_ARG="$LANG" python3 -c "
 import json
 import os
@@ -631,8 +703,7 @@ fi
 
 # --- 5b. Pre-commit stack (default for templated projects) ---
 if [[ ! -f "$PROJECT/.pre-commit-config.yaml" ]]; then
-  cp "$TEMPLATE_DIR/configs/.pre-commit-config.yaml.template" "$PROJECT/.pre-commit-config.yaml"
-  info ".pre-commit-config.yaml"
+  copy_template "$TEMPLATE_DIR/configs/.pre-commit-config.yaml.template" "$PROJECT/.pre-commit-config.yaml" ".pre-commit-config.yaml"
 else
   info "skipped .pre-commit-config.yaml (already exists)"
 fi
@@ -644,26 +715,25 @@ if [[ "$LANG" == "python" ]]; then
 fi
 
 if [[ ! -f "$PROJECT/zizmor.yml" ]]; then
-  cp "$TEMPLATE_DIR/configs/zizmor.yml.template" "$PROJECT/zizmor.yml"
-  info "zizmor.yml"
+  copy_template "$TEMPLATE_DIR/configs/zizmor.yml.template" "$PROJECT/zizmor.yml" "zizmor.yml"
 else
   info "skipped zizmor.yml (already exists)"
 fi
 
 if [[ ! -f "$PROJECT/.secrets.baseline" ]]; then
-  cp "$TEMPLATE_DIR/configs/.secrets.baseline.template" "$PROJECT/.secrets.baseline"
-  info ".secrets.baseline"
+  copy_template "$TEMPLATE_DIR/configs/.secrets.baseline.template" "$PROJECT/.secrets.baseline" ".secrets.baseline"
 else
   info "skipped .secrets.baseline (already exists)"
 fi
 
 # Copy language-specific .gitignore if project doesn't have one
 if [[ ! -f .gitignore ]]; then
-  cp "$TEMPLATE_DIR/configs/$LANG/gitignore" .gitignore
-  info ".gitignore (from $LANG template)"
+  copy_template "$TEMPLATE_DIR/configs/$LANG/gitignore" "$PROJECT/.gitignore" ".gitignore (from $LANG template)"
 else
+  assert_project_path "$PROJECT/.gitignore"
   # Loose match — accept any form of node_modules entry (with/without slash, glob prefix, etc.)
   if ! grep -q 'node_modules' .gitignore; then
+    backup_before_inplace_write "$PROJECT/.gitignore"
     echo 'node_modules/' >> .gitignore
     info ".gitignore: added node_modules/"
   else

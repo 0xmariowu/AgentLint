@@ -316,7 +316,7 @@ agentlint — AI-native development toolkit
 
 Commands:
   setup   Bootstrap a repo with AI-native CI/CD, hooks, and templates
-          agentlint setup --lang <ts|python|node> [--visibility public|private] <path>
+          agentlint setup --lang <ts|python|node> [--visibility public|private] [--init-git] [--with-auto-push] <path>
 
   check   Diagnose your repo's AI-friendliness (51 core checks + 7 opt-in)
           agentlint check                          # scan current directory

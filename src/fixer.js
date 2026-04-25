@@ -4,6 +4,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { execFileSync } = require('child_process');
 
 const EVIDENCE_FILE = path.join(__dirname, '..', 'standards', 'evidence.json');
 const CLAUDE_TEMPLATE = path.join(__dirname, '..', 'standards', 'fix-templates', 'claude-md-starter.md');
@@ -37,6 +38,7 @@ function parseArgs(argv) {
     projectDir: null,
     selectedItemsRaw: null,
     selectedChecksRaw: null,
+    forceDirty: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -91,6 +93,11 @@ function parseArgs(argv) {
       continue;
     }
 
+    if (arg === '--force-dirty') {
+      args.forceDirty = true;
+      continue;
+    }
+
     if (!arg.startsWith('--') && args.planPath === null) {
       args.planPath = arg;
       continue;
@@ -122,13 +129,102 @@ function parseArgs(argv) {
     }
   }
 
-  args.projectDir = path.resolve(args.projectDir); // nosemgrep: path-join-resolve-traversal
-
-  if (!fs.existsSync(path.join(args.projectDir, '.git'))) { // nosemgrep: path-join-resolve-traversal
-    throw new Error(`Not a git repository: ${args.projectDir}`);
-  }
+  args.projectDir = validateProjectDir(args.projectDir, args.forceDirty);
 
   return args;
+}
+
+function gitOutput(args, cwd) {
+  return execFileSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+}
+
+function isInsidePath(parent, child) {
+  const rel = path.relative(parent, child);
+  return rel === '' || (!!rel && !rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function assertRealPathInsideProject(projectDir, targetPath) {
+  const projectReal = fs.realpathSync(projectDir); // nosemgrep: path-join-resolve-traversal
+  let targetReal;
+  if (fs.existsSync(targetPath)) { // nosemgrep: path-join-resolve-traversal
+    targetReal = fs.realpathSync(targetPath); // nosemgrep: path-join-resolve-traversal
+  } else {
+    const missing = [];
+    let cursor = path.resolve(targetPath); // nosemgrep: path-join-resolve-traversal
+    while (!fs.existsSync(cursor)) { // nosemgrep: path-join-resolve-traversal
+      missing.unshift(path.basename(cursor));
+      const next = path.dirname(cursor);
+      if (next === cursor) break;
+      cursor = next;
+    }
+    const baseReal = fs.realpathSync(cursor); // nosemgrep: path-join-resolve-traversal
+    targetReal = path.join(baseReal, ...missing); // nosemgrep: path-join-resolve-traversal
+  }
+
+  if (!isInsidePath(projectReal, targetReal)) {
+    throw new Error(`Refusing to write outside project directory: ${targetPath} -> ${targetReal}`);
+  }
+}
+
+function validateProjectDir(projectDirArg, forceDirty) {
+  const resolved = path.resolve(projectDirArg); // nosemgrep: path-join-resolve-traversal
+  if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+    throw new Error(`Project directory does not exist or is not a directory: ${resolved}`);
+  }
+
+  let projectReal;
+  try {
+    projectReal = fs.realpathSync(resolved); // nosemgrep: path-join-resolve-traversal
+  } catch (err) {
+    throw new Error(`Cannot resolve project directory: ${resolved}: ${err.message}`);
+  }
+
+  let gitTop;
+  let gitDir;
+  try {
+    gitTop = fs.realpathSync(gitOutput(['rev-parse', '--show-toplevel'], projectReal)); // nosemgrep: path-join-resolve-traversal
+    gitDir = fs.realpathSync(gitOutput(['rev-parse', '--path-format=absolute', '--git-dir'], projectReal)); // nosemgrep: path-join-resolve-traversal
+  } catch (_) {
+    throw new Error(`Not a git repository: ${projectReal}`);
+  }
+
+  const headPath = path.join(gitDir, 'HEAD'); // nosemgrep: path-join-resolve-traversal
+  let headStat;
+  try {
+    headStat = fs.lstatSync(headPath);
+  } catch (_) {
+    throw new Error(`Invalid git repository: missing HEAD at ${headPath}`);
+  }
+  if (!headStat.isFile() && !headStat.isSymbolicLink()) {
+    throw new Error(`Invalid git repository: HEAD is not a regular file or symlink at ${headPath}`);
+  }
+  const dotGitHeadPath = path.join(projectReal, '.git', 'HEAD'); // nosemgrep: path-join-resolve-traversal
+  if (fs.existsSync(dotGitHeadPath)) { // nosemgrep: path-join-resolve-traversal
+    const dotGitHeadStat = fs.lstatSync(dotGitHeadPath);
+    if (!dotGitHeadStat.isFile() && !dotGitHeadStat.isSymbolicLink()) {
+      throw new Error(`Invalid git repository: .git/HEAD is not a regular file or symlink at ${dotGitHeadPath}`);
+    }
+  }
+
+  if (!isInsidePath(gitTop, projectReal)) {
+    throw new Error(`Project directory is not inside the git working tree: ${projectReal}`);
+  }
+  if (isInsidePath(gitDir, projectReal)) {
+    throw new Error(`Refusing to run inside git metadata: ${projectReal}`);
+  }
+
+  if (!forceDirty) {
+    const dirty = gitOutput(['status', '--porcelain'], projectReal);
+    if (dirty) {
+      throw new Error('Working tree has uncommitted changes. Commit or stash them first, or re-run with --force-dirty.');
+    }
+  }
+
+  return projectReal;
 }
 
 function readPlanInput(planPath) {
@@ -264,11 +360,7 @@ function backupFile(originalPath, projectDir, backupRoot, backedSet) {
     return;
   }
 
-  // Refuse to back up files outside the project dir (symlink protection).
-  const projectAbs = path.resolve(projectDir); // nosemgrep: path-join-resolve-traversal
-  if (!abs.startsWith(projectAbs + path.sep) && abs !== projectAbs) {
-    throw new Error(`Refusing to back up file outside project directory: ${abs}`);
-  }
+  assertRealPathInsideProject(projectDir, abs);
   // Refuse symlinks — writing to them escapes the project.
   try {
     if (fs.lstatSync(abs).isSymbolicLink()) {
@@ -501,6 +593,7 @@ function getItem(item) {
 
 function executeAssistedF1(projectDir, projectName) {
   const target = path.join(projectDir, 'CLAUDE.md'); // nosemgrep: path-join-resolve-traversal
+  assertRealPathInsideProject(projectDir, target);
 
   // Use lstatSync to detect both existing files and symlinks (even dangling ones).
   // existsSync() returns false for dangling symlinks, which would allow writeFileSync
@@ -541,6 +634,7 @@ function executeAssistedF1(projectDir, projectName) {
 
 function executeAssistedC2(projectDir, projectName) {
   const target = path.join(projectDir, 'HANDOFF.md'); // nosemgrep: path-join-resolve-traversal
+  assertRealPathInsideProject(projectDir, target);
 
   // Use lstatSync to detect both existing files and symlinks (even dangling ones).
   // existsSync() returns false for dangling symlinks, which would allow writeFileSync
@@ -585,6 +679,11 @@ function executeAutoW11(projectDir) {
   const templatePath = path.join(__dirname, '..', 'templates', 'ci', 'test-required.yml');
   const targetDir = path.join(projectDir, '.github', 'workflows'); // nosemgrep: path-join-resolve-traversal
   const targetPath = path.join(targetDir, 'test-required.yml'); // nosemgrep: path-join-resolve-traversal
+  try {
+    assertRealPathInsideProject(projectDir, targetPath);
+  } catch (err) {
+    return { status: 'failed', detail: err.message };
+  }
 
   if (!fs.existsSync(templatePath)) {
     return { status: 'failed', detail: 'Template not found: templates/ci/test-required.yml' };
@@ -622,6 +721,11 @@ function executeAssistedH8(projectDir) {
   const templatePath = path.join(__dirname, '..', 'templates', 'hooks', '_shared.sh');
   const hooksDir = path.join(projectDir, 'hooks'); // nosemgrep: path-join-resolve-traversal
   const targetPath = path.join(hooksDir, '_shared.sh'); // nosemgrep: path-join-resolve-traversal
+  try {
+    assertRealPathInsideProject(projectDir, targetPath);
+  } catch (err) {
+    return { status: 'failed', detail: err.message };
+  }
 
   if (!fs.existsSync(templatePath)) {
     return { status: 'failed', detail: 'Template not found: templates/hooks/_shared.sh' };
@@ -708,6 +812,7 @@ function executeAutoFix(checkId, projectDir, filePath, backupRoot, backedSet) {
       };
     }
     backupFile(filePath, projectDir, backupRoot, backedSet);
+    assertRealPathInsideProject(projectDir, filePath);
     fs.writeFileSync(filePath, result.content);
     return {
       status: 'fixed',
@@ -724,6 +829,7 @@ function executeAutoFix(checkId, projectDir, filePath, backupRoot, backedSet) {
       };
     }
     backupFile(filePath, projectDir, backupRoot, backedSet);
+    assertRealPathInsideProject(projectDir, filePath);
     fs.writeFileSync(filePath, result.content);
     return {
       status: 'fixed',

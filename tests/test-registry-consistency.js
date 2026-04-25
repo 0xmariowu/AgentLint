@@ -284,7 +284,7 @@ runTest('commands/al.md resolves $PROJECT_DIR before fixer.js invocation', () =>
   const src = fs.readFileSync(path.join(ROOT, 'commands', 'al.md'), 'utf8');
   const usesProjectDir = src.includes('--project-dir "$PROJECT_DIR"');
   if (!usesProjectDir) return;
-  const resolutionIdx = src.indexOf('PROJECT_DIR="$SELECTED_PATH"');
+  const resolutionIdx = src.indexOf('PROJECT_DIR="$(python3 -c "$REALPATH_CMD" "$SELECTED_PATH")"');
   const fixerInvokeIdx = src.indexOf('node "$AL_DIR/src/fixer.js"');
   assert.ok(resolutionIdx >= 0,
     'commands/al.md must set PROJECT_DIR from SELECTED_PATH (absolute, canonical)');
@@ -449,6 +449,38 @@ runTest('setup.sh validates flag values and is non-destructive by default', () =
     'setup.sh must document a --force flag to allow explicit overwrite');
 });
 
+runTest('setup.sh guards symlink writes and backs up changed overwrites', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'scripts', 'setup.sh'), 'utf8');
+  assert.match(src, /readlink -f/,
+    'setup.sh must resolve write targets with readlink -f when available');
+  assert.match(src, /assert_project_path\s*\(\)/,
+    'setup.sh must assert resolved write targets stay under PROJECT_ROOT');
+  assert.match(src, /al-backup-\$\{BACKUP_TS\}/,
+    'setup.sh must create per-file .al-backup timestamp backups before changed overwrites');
+  assert.match(src, /backed up/,
+    'setup.sh must print a visible backup message');
+});
+
+runTest('setup.sh refuses non-git dirs unless --init-git is explicit', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'scripts', 'setup.sh'), 'utf8');
+  assert.match(src, /--init-git/,
+    'setup.sh must expose --init-git as the explicit opt-in for git init');
+  assert.match(src, /rev-parse --is-inside-work-tree/,
+    'setup.sh must validate the target with git rev-parse');
+  assert.match(src, /target is not a git repo[\s\S]{0,120}--init-git/,
+    'setup.sh must refuse non-git targets by default and mention --init-git');
+});
+
+runTest('setup.sh makes auto-push workflow opt-in', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'scripts', 'setup.sh'), 'utf8');
+  assert.match(src, /--with-auto-push/,
+    'setup.sh must expose --with-auto-push for autofix workflows');
+  assert.match(src, /basename "\$src"[\s\S]{0,120}autofix\.yml[\s\S]{0,120}WITH_AUTO_PUSH/,
+    'setup.sh must skip autofix.yml unless --with-auto-push is set');
+  assert.match(fs.readFileSync(path.join(ROOT, 'templates', 'ts', 'autofix.yml'), 'utf8'), /git push origin/,
+    'templates/ts/autofix.yml is the auto-push workflow that must be opt-in');
+});
+
 runTest('setup gitignore templates ship in npm package and install as .gitignore', () => {
   const langs = ['ts', 'node', 'python'];
   for (const lang of langs) {
@@ -458,8 +490,10 @@ runTest('setup gitignore templates ship in npm package and install as .gitignore
   }
 
   const setup = fs.readFileSync(path.join(ROOT, 'scripts', 'setup.sh'), 'utf8');
-  assert.match(setup, /cp "\$TEMPLATE_DIR\/configs\/\$LANG\/gitignore" \.gitignore/,
+  assert.match(setup, /\$TEMPLATE_DIR\/configs\/\$LANG\/gitignore/,
     'setup.sh must copy from configs/$LANG/gitignore to destination .gitignore');
+  assert.match(setup, /copy_template "\$TEMPLATE_DIR\/configs\/\$LANG\/gitignore" "\$PROJECT\/\.gitignore"/,
+    'setup.sh must route .gitignore install through guarded copy_template');
   assert.doesNotMatch(setup, /configs\/\$LANG\/\.gitignore/,
     'setup.sh must not copy from configs/$LANG/.gitignore because npm strips that file');
 
@@ -496,6 +530,30 @@ runTest('fixer.js F5 reference resolution aligns with scanner semantics', () => 
     'referenceExists must reject parent-dir traversal (scanner alignment)');
   assert.doesNotMatch(fn, /fs\.existsSync\(path\.join\(process\.cwd/,
     'referenceExists must not probe process.cwd() — scanner stays inside projectDir only');
+});
+
+runTest('fixer.js validates git repo deeply and refuses dirty trees by default', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'fixer.js'), 'utf8');
+  assert.match(src, /rev-parse['"],\s*['"]--show-toplevel/,
+    'fixer.js must resolve the git working-tree root');
+  assert.match(src, /path\.join\(gitDir,\s*'HEAD'\)/,
+    'fixer.js must verify HEAD inside the resolved git dir');
+  assert.match(src, /lstatSync\(headPath\)/,
+    'fixer.js must lstat HEAD and validate its file type');
+  assert.match(src, /status['"],\s*['"]--porcelain/,
+    'fixer.js must check for uncommitted changes');
+  assert.match(src, /--force-dirty/,
+    'fixer.js must provide an explicit dirty-tree opt-out');
+});
+
+runTest('fixer.js resolves write targets before fs.writeFileSync', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'fixer.js'), 'utf8');
+  assert.match(src, /function assertRealPathInsideProject/,
+    'fixer.js must define a realpath-based project-boundary assertion');
+  assert.match(src, /assertRealPathInsideProject\(projectDir,\s*filePath\)[\s\S]{0,80}fs\.writeFileSync\(filePath/,
+    'fixer.js must assert filePath is inside the project before mutating entry files');
+  assert.match(src, /assertRealPathInsideProject\(projectDir,\s*targetPath\)/,
+    'fixer.js must assert generated target paths before writing workflow/hook files');
 });
 
 runTest('agentlint doctor command exists and checks required deps', () => {
@@ -787,12 +845,38 @@ runTest('/al Step 5c selects by project_path, not basename', () => {
   // the filter.
   const src = fs.readFileSync(path.join(ROOT, 'commands', 'al.md'), 'utf8');
   const step5c = src.slice(src.indexOf('Step 5c'));
-  assert.match(step5c, /UNIQUE_PATHS.*\.project_path/,
+  assert.match(step5c, /UNIQUE_PATHS[\s\S]{0,300}\.project_path/,
     'Step 5c must enumerate projects by .project_path (not .project)');
   assert.match(step5c, /\.project_path == \$pp|\.project_path\s*==\s*\$pp/,
     'Step 5c plan filter must compare .project_path to the selected path');
   assert.doesNotMatch(step5c, /find "\$PROJECTS_ROOT".*basename.*SELECTED_PROJECT/s,
     'Step 5c must not use find + basename to resolve the project dir');
+});
+
+runTest('/al Step 5c canonicalizes selected project and validates git repo', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'commands', 'al.md'), 'utf8');
+  const step5c = src.slice(src.indexOf('Step 5c'), src.indexOf('### Step 6'));
+  assert.match(step5c, /os\.path\.realpath/,
+    'Step 5c must canonicalize project candidates with realpath');
+  assert.match(step5c, /PROJECT_DIR="\$\(python3 -c "\$REALPATH_CMD" "\$SELECTED_PATH"\)"/,
+    'Step 5c must set PROJECT_DIR to the canonical selected path');
+  assert.match(step5c, /git -C "\$PROJECT_DIR" rev-parse --is-inside-work-tree/,
+    'Step 5c must verify the selected path is a git repo before fixer.js');
+});
+
+runTest('/al Deep flow defines executable per-check loop and output files', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'commands', 'al.md'), 'utf8');
+  const deepSection = src.slice(src.indexOf('## AI Deep Analysis'), src.indexOf('## Session Analysis'));
+  assert.match(deepSection, /: > "\$RUN_DIR\/deep\.jsonl"/,
+    'Deep flow must initialize deep.jsonl before appending');
+  assert.match(deepSection, /TASKS_FILE="\$RUN_DIR\/\$\{PREFIX\}\.deep-tasks\.json"/,
+    'Deep flow must save generated tasks to a defined per-project file');
+  assert.match(deepSection, /for CHECK in D1 D2 D3/,
+    'Deep flow must iterate over all supported checks with a concrete loop');
+  assert.match(deepSection, /AI_OUT="\$RUN_DIR\/\$\{PREFIX\}\.\$\{CHECK_LOWER\}-ai\.json"/,
+    'Deep flow must define each AI output path before using it');
+  assert.match(deepSection, /--format-result --project "\$P" --project-path "\$P_DIR" --check "\$CHECK"/,
+    'Deep flow must convert each AI output with project and project_path');
 });
 
 runTest('plan-generator grouped items carry project_paths array', () => {
@@ -888,6 +972,28 @@ runTest('INSTALL.md exists and is the canonical install reference', () => {
     'INSTALL.md must document the recommended `npx agentlint-ai init` path');
   assert.match(install, /--ignore-scripts/,
     'INSTALL.md must document the no-side-effects `--ignore-scripts` path');
+});
+
+runTest('INSTALL.md and README document npx init persistence limitation', () => {
+  const install = fs.readFileSync(path.join(ROOT, 'INSTALL.md'), 'utf8');
+  const readme = fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8');
+  assert.match(install, /does \*\*not\*\* install a persistent `agentlint` binary/,
+    'INSTALL.md must say npx init does not install persistent agentlint');
+  assert.match(readme, /does not leave a persistent `agentlint` binary/,
+    'README.md must say npx init does not leave agentlint on PATH');
+  assert.match(install, /npm install -g agentlint-ai/,
+    'INSTALL.md must direct users to npm install -g for persistent CLI');
+});
+
+runTest('Claude plugin install failures are distinguished from npm CLI success', () => {
+  const install = fs.readFileSync(path.join(ROOT, 'scripts', 'install.sh'), 'utf8');
+  const postinstall = fs.readFileSync(path.join(ROOT, 'postinstall.js'), 'utf8');
+  assert.match(install, /AgentLint CLI is installed/,
+    'install.sh must distinguish CLI install success from Claude plugin failure');
+  assert.match(install, /\/al will not be available/,
+    'install.sh must clearly say /al is unavailable when plugin install fails');
+  assert.match(postinstall, /npm package installed; CLI works/,
+    'postinstall.js must not collapse plugin failure into generic install success');
 });
 
 runTest('README recommends npx init path and links to INSTALL.md', () => {

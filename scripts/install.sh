@@ -12,6 +12,7 @@ ok()   { printf "  ${G}✓${R} %-28s %s\n" "$1" "$2"; }
 skip() { printf "  ${D}o${R} %-28s ${D}%s${R}\n" "$1" "$2"; }
 warn() { printf "  ${Y}!${R} %-28s %s\n" "$1" "$2"; }
 info() { printf "    %s\n" "$1"; }
+PLUGIN_INSTALL_OK=true
 
 box() {
   local w=62
@@ -38,7 +39,7 @@ else
   claude plugin marketplace remove agent-lint 2>/dev/null || true
   claude plugin marketplace add 0xmariowu/agent-lint 2>/dev/null \
     && ok "AgentLint marketplace" "[refreshed]" \
-    || warn "AgentLint marketplace" "[failed]"
+    || { warn "AgentLint marketplace" "[failed]"; PLUGIN_INSTALL_OK=false; }
 fi
 
 # Plugin install
@@ -48,6 +49,8 @@ if echo "$INSTALL_OUT" | grep -q "Successfully installed\|already installed"; th
   ok "Claude Code plugin" "[v${INSTALLED_VER:-?} installed]"
 else
   warn "Claude Code plugin" "[install failed]"
+  info "$INSTALL_OUT"
+  PLUGIN_INSTALL_OK=false
 fi
 
 # /al global command
@@ -61,7 +64,9 @@ if [ -f "$CMD_SRC" ]; then
   cp "$CMD_SRC" "$CMD_DST"
   ok "/al command" "[installed]"
 else
-  skip "/al command" "[use /agent-lint:al instead]"
+  warn "/al command" "[not installed]"
+  info "npm CLI works, but /al will not be available until the Claude plugin install succeeds."
+  PLUGIN_INSTALL_OK=false
 fi
 
 # ── other AI tools ─────────────────────────────────────────────────────────────
@@ -76,11 +81,19 @@ command -v windsurf &>/dev/null && ok   "Windsurf"  "[detected — .windsurfrule
 # ── final box ──────────────────────────────────────────────────────────────────
 echo ""
 {
-  echo "AgentLint is ready!"
+  if [ "$PLUGIN_INSTALL_OK" = true ]; then
+    echo "AgentLint is ready!"
+  else
+    echo "AgentLint CLI is installed."
+    echo "Claude plugin install failed."
+    echo "The npm CLI works, but /al will not be available yet."
+  fi
   echo ""
-  echo "In Claude Code, start a new session and run:"
-  echo "  /al"
-  echo ""
+  if [ "$PLUGIN_INSTALL_OK" = true ]; then
+    echo "In Claude Code, start a new session and run:"
+    echo "  /al"
+    echo ""
+  fi
   echo "Or use the CLI directly:"
   echo "  agentlint check --project-dir <path>"
   echo "  agentlint fix W11"

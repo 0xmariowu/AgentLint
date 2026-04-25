@@ -8,10 +8,15 @@
 npx agentlint-ai init
 ```
 
-- Installs the CLI globally (via `npx` cache).
+- Runs the init UI from the `npx` cache. This does **not** install a persistent `agentlint` binary for later shells.
 - Detects Claude Code. If present, registers `/al` plugin in `~/.claude/`.
 - Prints ASCII logo, privacy-by-mode summary, step-by-step environment detection.
 - Safe to re-run; idempotent.
+- For persistent CLI commands (`agentlint check`, `agentlint fix`, `agentlint setup`), run:
+
+```bash
+npm install -g agentlint-ai
+```
 
 ## Alternative — `npm install -g`
 
@@ -20,7 +25,7 @@ npm install -g --foreground-scripts agentlint-ai
 ```
 
 - `--foreground-scripts` keeps the install UI visible (npm 9+ silences `postinstall` stdout by default, so plain `npm install -g` hides the logo + env check).
-- Otherwise identical outcome to `npx ... init`: CLI on PATH, `/al` registered if Claude Code is present.
+- Installs `agentlint` on PATH for future shell sessions and registers `/al` if Claude Code is present.
 
 ## No-side-effects path — corporate / CI / sandboxed
 
@@ -72,7 +77,8 @@ If `/al` was registered, remove the plugin manually inside Claude Code:
 
 ## Common failure modes
 
-- **`command not found: agentlint` after install** — Node global-bin not on `PATH`. Fix: `export PATH="$(npm prefix -g)/bin:$PATH"` (add to shell rc).
+- **`command not found: agentlint` after `npx agentlint-ai init`** — expected: `npx` ran init but did not install the persistent CLI. Run `npm install -g agentlint-ai`.
+- **`command not found: agentlint` after `npm install -g`** — Node global-bin not on `PATH`. Fix: `export PATH="$(npm prefix -g)/bin:$PATH"` (add to shell rc).
 - **`npm install -g` printed nothing** — npm 9+ default. Use `npx agentlint-ai init` or add `--foreground-scripts`.
 - **First `/al` says "command not found"** — plugin wasn't registered (install ran with `--ignore-scripts` or Claude Code wasn't detected at install time). Run `agentlint-ai init` explicitly.
 - **macOS: `jq: command not found`** — macOS doesn't ship `jq` by default. `brew install jq`.

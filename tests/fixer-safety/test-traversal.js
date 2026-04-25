@@ -125,7 +125,7 @@ test('Traversal: missing --project-dir is rejected', () => {
 
 // ── Test 6: Legit git repo IS accepted (control — proves fixer works when valid) ──
 test('Traversal: legit git repo is accepted (control)', () => {
-  const r = runFixer(dotdotPlan, ['--project-dir', legitRepo, '--items', 'F1']);
+  const r = runFixer(dotdotPlan, ['--project-dir', legitRepo, '--items', 'F1', '--force-dirty']);
   // fixer should exit 0 for a real git repo (may apply fix or skip if nothing to do)
   assert.equal(r.exitCode, 0, `Expected exit 0 for legit repo, got ${r.exitCode}. stderr: ${r.stderr}`);
 });
@@ -135,7 +135,7 @@ test('Traversal: fixer does not write outside project dir', () => {
   // Snapshot files outside the repo before running
   const filesOutsideBefore = fs.readdirSync(TMP).sort();
   // Run fixer on the legit repo
-  runFixer(dotdotPlan, ['--project-dir', legitRepo, '--items', 'F1']);
+  runFixer(dotdotPlan, ['--project-dir', legitRepo, '--items', 'F1', '--force-dirty']);
   // Check nothing new appeared in TMP (outside legitRepo)
   const filesOutsideAfter = fs.readdirSync(TMP).sort();
   assert.deepEqual(filesOutsideBefore, filesOutsideAfter, `New files appeared outside project dir: ${filesOutsideAfter.filter(f => !filesOutsideBefore.includes(f)).join(', ')}`);
