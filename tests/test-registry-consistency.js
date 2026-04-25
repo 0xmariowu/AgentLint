@@ -462,10 +462,12 @@ runTest('session-analyzer sentinels never emit bare records lacking project iden
     'scorer.mergeRecord must skip byProject bucketing for records without project identity');
 });
 
-runTest('session-analyzer SS1 clusters carry project identity, not global', () => {
+runTest('session-analyzer SS1/SS4 clusters carry project identity, not global', () => {
   const ss = fs.readFileSync(path.join(ROOT, 'src', 'session-analyzer.js'), 'utf8');
   assert.doesNotMatch(ss, /buildS1Findings[\s\S]{0,500}project:\s*['"]global['"]/,
     'SS1 findings must not default project to global');
+  assert.doesNotMatch(ss, /buildS4Findings[\s\S]{0,500}project:\s*['"]global['"]/,
+    'SS4 findings must not default project to global');
 });
 
 runTest('session-analyzer SS2 hit keys use project path, not basename', () => {
