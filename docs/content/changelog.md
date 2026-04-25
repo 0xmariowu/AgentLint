@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v1.1.7 (2026-04-26)
+
+GitHub Copilot Code Review follow-up — three doc/comment fixes Copilot flagged on PR #196 that landed merged but unaddressed.
+
+### You can now…
+
+- **Read setup.sh's usage line and see all three supported languages** — `--lang <ts|python|node>` instead of `<ts|python>`. The runtime validator already accepted `node`; the comment now matches.
+- **Get correct path pointers from `committer` error messages** — pointers no longer reference `configs/commitlint.config.cjs` / `configs/node/.gitignore` / `configs/ts/.gitignore` (template-only paths that don't exist after `agentlint setup` writes them to repo root). Errors now route users to the actual downstream files.
+- **See the full enforcement story in `templates/configs/ship-boundary.md`** — the bullet covers both husky (TS / Node) and pre-commit (Python) paths instead of claiming `.husky/pre-commit` for everything.
+
+No code-behavior change; doc/comment corrections only.
+
 ## v1.1.6 (2026-04-26)
 
 Production blocker fix bundle — 5 of 9 P0 items from `docs/p0-production-blocker-scan-2026-04-25.md` plus the version bump itself. Closes the gaps that broke the canonical install + setup paths after the PR1–PR5 hygiene cleanup.
