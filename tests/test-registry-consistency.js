@@ -1636,5 +1636,32 @@ runTest('copilot-instructions.md product summary stays in sync with evidence.jso
     'copilot-instructions.md must reference current check/dimension counts');
 });
 
+runTest('public docs GitHub Action snippets include actions/checkout', () => {
+  const USER_FACING_DOCS = [
+    'README.md',
+    'README_CN.md',
+    'INSTALL.md',
+    path.join('docs', 'content', 'intro.md'),
+  ];
+  const actionRefPattern = /0xmariowu\/(?:AgentLint|agent-lint)@[A-Za-z0-9._/-]+/;
+  const fencedBlockPattern = /^```([A-Za-z0-9_-]+)[^\n]*\n([\s\S]*?)^```/gm;
+
+  for (const file of USER_FACING_DOCS) {
+    const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
+    let match;
+    while ((match = fencedBlockPattern.exec(src)) !== null) {
+      const language = match[1].toLowerCase();
+      if (language !== 'yaml' && language !== 'yml') continue;
+
+      const snippet = match[2];
+      if (!actionRefPattern.test(snippet)) continue;
+
+      assert.match(snippet, /actions\/checkout/,
+        `${file}: GitHub Action snippet references AgentLint without actions/checkout:\n` +
+        snippet.split(/\r?\n/).slice(0, 3).join('\n'));
+    }
+  }
+});
+
 process.stdout.write(`${passed}/${total} tests passed\n`);
 process.exit(passed === total ? 0 : 1);
