@@ -99,7 +99,7 @@ try:
 except subprocess.CalledProcessError:
     hooks_path = ""
 checks["core_hooksPath_husky"] = {
-    "pass": hooks_path == ".husky",
+    "pass": hooks_path in (".husky", ".husky/_"),
     "value": hooks_path or "(unset)",
 }
 
