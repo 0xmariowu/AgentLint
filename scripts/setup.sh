@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # setup.sh — Initialize project automation from templates
-# Usage: agentlint setup --lang <ts|python> [--runner bun] [--visibility public|private] [--workflows-only] [--init-git] [--with-auto-push] [--project-dir <path>] [project-path]
+# Usage: agentlint setup --lang <ts|python|node> [--runner bun] [--visibility public|private] [--workflows-only] [--init-git] [--with-auto-push] [--project-dir <path>] [project-path]
 
 set -euo pipefail
 
