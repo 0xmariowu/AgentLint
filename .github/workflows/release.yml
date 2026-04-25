@@ -194,6 +194,14 @@ jobs:
             fi
           fi
 
+      - name: Update moving v1 tag
+        if: startsWith(github.ref, 'refs/tags/v1.')
+        run: |
+          git tag -f v1 ${{ github.sha }}
+          git push --force origin refs/tags/v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Sync to website repo (agent-lint-simple-green)
         if: steps.check.outputs.exists == 'false'
         env:
