@@ -782,8 +782,8 @@ runTest('scanner.sh resolves symlinks + handles empty/missing PROJECTS_ROOT', ()
   // the resolver, not the literal `readlink -f` invocation.
   assert.match(src, /_al_resolve_self\s+"\$\{BASH_SOURCE\[0\]\}"/,
     'scanner.sh must resolve its own path through _al_resolve_self so npm symlinks work on BSD/macOS without readlink -f');
-  assert.match(src, /readlink "\$current"/,
-    'scanner.sh _al_resolve_self must use POSIX readlink (no -f flag) to stay portable');
+  assert.match(src, /readlink -- "\$current"/,
+    'scanner.sh _al_resolve_self must use POSIX readlink (no -f flag, with -- option terminator) to stay portable and handle dash-prefixed paths');
   assert.match(src, /projects_root="\$HOME\/\$\{projects_root#'~\/'\}"/,
     'scanner.sh must expand a leading ~/ in PROJECTS_ROOT');
   assert.match(src, /\$\{#projects\[@\]\}"?\s*-eq\s*0/,

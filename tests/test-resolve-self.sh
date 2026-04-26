@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Test scripts/lib/resolve-self.sh against three symlink scenarios under a
-# simulated BSD-style readlink (no -f flag). Verifies the function never
-# falls back to readlink -f even when GNU coreutils is not installed.
+# Test scripts/lib/resolve-self.sh against five symlink scenarios under a
+# simulated BSD-style readlink (no -f flag): non-symlink, absolute symlink,
+# relative symlink (npm bin shape), chained symlink, and a negative control
+# verifying the BSD stub really blocks `readlink -f`. Confirms the function
+# never falls back to readlink -f even when GNU coreutils is not installed.
 
 set -eu
 
@@ -10,9 +12,11 @@ LIB="$REPO_ROOT/scripts/lib/resolve-self.sh"
 
 [ -f "$LIB" ] || { echo "FAIL: $LIB not found" >&2; exit 1; }
 
-# Build an isolated fixture root. Canonicalize via pwd -P so expected paths
-# match what resolve_self produces (macOS /var is a symlink to /private/var).
-FIX=$(mktemp -d)
+# Build an isolated fixture root. Use a portable mktemp template (BSD mktemp
+# requires either -t or an explicit XXX-suffixed template). Canonicalize via
+# pwd -P so expected paths match what resolve_self produces (macOS /var is
+# a symlink to /private/var).
+FIX=$(mktemp -d "${TMPDIR:-/tmp}/resolve-self-test.XXXXXX")
 FIX=$(CDPATH='' cd -- "$FIX" && pwd -P)
 trap 'rm -rf "$FIX"' EXIT
 

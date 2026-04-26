@@ -13,17 +13,18 @@ set -euo pipefail
 _al_resolve_self() {
     local current="$1"; local target current_dir; local i=0
     while [ -L "$current" ] && [ "$i" -lt 16 ]; do
-        target=$(readlink "$current")
+        target=$(readlink -- "$current")
         case "$target" in
             /*) current="$target" ;;
-            *) current_dir=$(dirname "$current"); current="$current_dir/$target" ;;
+            *) current_dir=$(dirname -- "$current"); current="$current_dir/$target" ;;
         esac
         i=$((i + 1))
     done
+    if [ -L "$current" ]; then return 1; fi
     local final_dir final_base
-    final_dir=$(dirname "$current"); final_base=$(basename "$current")
+    final_dir=$(dirname -- "$current"); final_base=$(basename -- "$current")
     final_dir=$(CDPATH='' cd -- "$final_dir" 2>/dev/null && pwd -P) || return 1
-    if [ "$final_base" = "/" ]; then echo "$final_dir"; else echo "$final_dir/$final_base"; fi
+    if [ "$final_dir" = "/" ]; then echo "/$final_base"; else echo "$final_dir/$final_base"; fi
 }
 SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$(_al_resolve_self "${BASH_SOURCE[0]}")")" && pwd)"
 REPO_ROOT="$(CDPATH='' cd -- "${SCRIPT_DIR}/.." && pwd)"
