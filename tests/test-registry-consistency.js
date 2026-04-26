@@ -449,14 +449,14 @@ runTest('branch-protection.yml declares the canonical required checks', () => {
   assert.match(yml, /repository:\s*0xmariowu\/AgentLint/);
   assert.match(yml, /branch:\s*main/);
 
-  // Synced 2026-04-26 (v1.1.12 F003) — re-added `CodeQL` and
-  // `check-test-pairing` to align with live main protection. Earlier
-  // version dropped them because they don't appear as check-runs on
-  // tag SHAs, but release.yml's required-checks step now does
-  // parent-SHA fallback (v1.1.8 PR #213), and `CodeQL` /
-  // `check-test-pairing` ARE emitted on the parent (squash-merge
-  // target) commit. With the parent fallback in place, having them
-  // in the contexts list is safe and aligns the YAML with live.
+  // Synced 2026-04-26 (v1.1.13 reverts v1.1.12 F003): the v1.1.12
+  // release.yml run timed out at attempt 20/20 with `Still missing:
+  // CodeQL check-test-pairing`, confirming that parent-SHA fallback
+  // does NOT make PR-only check-runs (`check-test-pairing`) appear
+  // on main, and that the workflow-name `CodeQL` never appears as a
+  // check-run name (the JOB is `analyze`). v1.1.8's drop-from-YAML
+  // path is correct; restore it. See the comment block in
+  // .github/branch-protection.yml for the full reasoning.
   const required = [
     'test (ubuntu-latest, 20)',
     'test (ubuntu-latest, 22)',
@@ -469,10 +469,8 @@ runTest('branch-protection.yml declares the canonical required checks', () => {
     'npm-e2e (windows-latest)',
     'lint',
     'analyze',
-    'CodeQL',
     'Semgrep',
     'scan',
-    'check-test-pairing',
   ];
   assert.deepEqual(yamlList(yml, 'contexts'), required,
     'branch-protection.yml required_status_checks.contexts must match the canonical gate set');
