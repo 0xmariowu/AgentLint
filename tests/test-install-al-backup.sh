@@ -133,9 +133,53 @@ test_fresh_install_no_backup() {
   fi
 }
 
+test_upstream_fail_preserves_existing_al() {
+  local home="$TMP_ROOT/case-upstream-fail"
+  setup_sandbox "$home"
+  mkdir -p "$home/.claude/commands"
+  printf 'OLD CUSTOM CONTENT\n' > "$home/.claude/commands/al.md"
+
+  # Replace the stub claude with one that fails plugin install. The al.md
+  # branch must NOT touch the user's file when an upstream step has
+  # already flipped PLUGIN_INSTALL_OK to false — otherwise we'd back up
+  # the user's content and have no replacement to put in its place.
+  cat > "$home/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in
+  plugin)
+    case "${2:-}" in
+      marketplace)
+        case "${3:-}" in add) echo "Successfully added marketplace"; exit 0 ;; esac ;;
+      install) echo "plugin install failed"; exit 1 ;;
+    esac ;;
+esac
+exit 0
+EOF
+  chmod +x "$home/bin/claude"
+
+  # install.sh exits non-zero overall (PLUGIN_INSTALL_OK=false), so don't
+  # treat that as test failure — the contract being tested is "user file
+  # untouched on upstream fail," not "exit 0."
+  run_install "$home" || true
+
+  if [[ ! -f "$home/.claude/commands/al.md" ]]; then
+    TEST_ERROR="install.sh removed the user's al.md after an upstream plugin failure"
+    return 1
+  fi
+  if ! grep -q 'OLD CUSTOM CONTENT' "$home/.claude/commands/al.md"; then
+    TEST_ERROR="install.sh overwrote the user's al.md after an upstream plugin failure"
+    return 1
+  fi
+  if find "$home/.claude/commands" -maxdepth 1 -name 'al.md.bak.*' -print -quit | grep -q .; then
+    TEST_ERROR="install.sh moved the user's al.md to backup with no replacement to install"
+    return 1
+  fi
+}
+
 run_test "clobber: existing different al.md backed up before overwrite" test_clobber_creates_backup
 run_test "identical: existing matching al.md leaves no backup churn" test_identical_does_not_backup
 run_test "fresh: no preexisting al.md installs cleanly without backup" test_fresh_install_no_backup
+run_test "upstream-fail: existing al.md preserved when prior plugin step failed" test_upstream_fail_preserves_existing_al
 
 echo "Summary: total=$TEST_COUNT passed=$PASS_COUNT failed=$FAIL_COUNT"
 [[ "$FAIL_COUNT" -eq 0 ]]

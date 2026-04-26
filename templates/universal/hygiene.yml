@@ -22,19 +22,22 @@ jobs:
         with:
           base-sha: ${{ github.event.pull_request.base.sha }}
 
-      # Use the PR's explicit base and head SHAs from the event payload.
-      # Two reasons: (1) the PR target may not be `main`, and (2) the previous
-      # form swallowed `git log` failures via a trailing `|| true` on the whole
-      # pipeline, so a missing base ref silently passed the check (fail-open).
+      # Use the PR's explicit base SHA from the event payload (the target may
+      # not be `main`) and HEAD against the checked-out merge commit. With
+      # `--no-merges` the GitHub-generated merge commit is filtered out, so
+      # `BASE_SHA..HEAD` yields exactly the PR's own commits.
+      # Why HEAD instead of pull_request.head.sha: actions/checkout's default
+      # fetch-depth=1 only fetches the merge commit, not the head SHA object,
+      # so the head-SHA form fails on shallow clones. The merge commit's
+      # second parent IS the head, so HEAD reaches the same set of commits.
       # `set -euo pipefail` makes a `git log` failure fail the step loud.
       - name: Check author emails in PR commits
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          AUTHORS=$(git log --no-merges --format='%ae' "${BASE_SHA}..${HEAD_SHA}")
+          AUTHORS=$(git log --no-merges --format='%ae' "${BASE_SHA}..HEAD")
           BAD=$(printf '%s\n' "$AUTHORS" \
             | grep -v '@users.noreply.github.com' \
             | grep -v 'github-actions' \
@@ -48,12 +51,11 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           # GITHUB_ACTOR per GitHub spec is alphanumeric + hyphen only — no regex-special chars, so no escaping needed.
           ALLOWED_AUTHOR_PATTERN="${ALLOWED_AUTHOR_PATTERN:-$GITHUB_ACTOR}"
-          AUTHORS=$(git log --no-merges --format='%an' "${BASE_SHA}..${HEAD_SHA}")
+          AUTHORS=$(git log --no-merges --format='%an' "${BASE_SHA}..HEAD")
           BAD=$(printf '%s\n' "$AUTHORS" \
             | grep -vE "$ALLOWED_AUTHOR_PATTERN" \
             | grep -v 'github-actions' \
