@@ -76,10 +76,19 @@ PY
 
 if [ "$MODE" = "verify" ]; then
   echo "Verifying tag ruleset on ${REPO} against ${CONFIG}" >&2
-  gh api "repos/${REPO}/rulesets" > "$actual"
-  # PR #209 review fix: extend verification to compare conditions/rules in
-  # addition to enforcement and target — without this, --verify would
-  # report a match on a ruleset whose ref filter or rule list had drifted.
+  # The list endpoint `repos/.../rulesets` returns summaries WITHOUT
+  # `conditions` / `rules` / `bypass_actors`, so the matcher below would
+  # always report false drift on those fields if we only fetched the list.
+  # Look up the ruleset id by name in the list, then GET the detail
+  # endpoint, and wrap the single object in an array so the existing
+  # list-shaped matcher contract still works.
+  expected_name=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d['name'])" "$payload")
+  detail_id=$(gh api "repos/${REPO}/rulesets" --jq ".[] | select(.name == \"${expected_name}\") | .id" | head -1)
+  if [ -z "$detail_id" ]; then
+    echo "${CONFIG}: no tag ruleset named \"${expected_name}\" found on remote" >&2
+    exit 1
+  fi
+  printf '[%s]\n' "$(gh api "repos/${REPO}/rulesets/${detail_id}")" > "$actual"
   python3 - "$CONFIG" "$payload" "$actual" <<'PY'
 import json
 import sys
