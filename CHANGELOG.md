@@ -4,6 +4,8 @@
 
 Hotfix: revert v1.1.12 F003 (the branch-protection.yml realignment that re-added `CodeQL` + `check-test-pairing`). The v1.1.12 release.yml run timed out at attempt 20/20 with `Still missing: CodeQL check-test-pairing`, confirming the rationale for re-adding them was wrong.
 
+> **v1.1.12 status**: tagged in git but **not published to npm** — release.yml's required-checks gate failed before reaching `npm publish`. `npm install agentlint-ai@1.1.12` errors with `ETARGET` / "No matching version found"; `npm install agentlint-ai@latest` (and the unpinned default) skip from `1.1.11` directly to `1.1.13`. The git tag stays (tag-protection ruleset blocks deletion of immutable semver tags).
+
 **Key insight (worth reading)**:
 - `CodeQL` is a **workflow** name. The check-runs API returns **job** names. The CodeQL workflow's only job is `analyze` — that's what lands as a check-run on every commit. Listing `CodeQL` in `contexts:` made it perpetually missing.
 - `check-test-pairing` runs only on `pull_request` events. Squash-merge to main produces a new commit; PR-only workflows never re-run on that commit. Parent-SHA fallback (added in v1.1.8 PR #213) covers squash-merges that didn't fire `push:main`; it does NOT make PR-only check-runs retroactively appear on main commits.
