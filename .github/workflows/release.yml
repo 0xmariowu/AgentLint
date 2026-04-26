@@ -22,6 +22,103 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          # `git merge-base --is-ancestor` below needs the full history of
+          # both the tag commit and origin/main to compute ancestry — a
+          # shallow checkout (default depth=1) gives a false negative.
+          fetch-depth: 0
+
+      # P0-2-tag (2026-04-26): refuse to publish a tag whose commit is not
+      # already on origin/main. Without this gate, anyone with tag-push
+      # permission could trigger npm publish + GitHub Release + the moving
+      # `v1` tag from a commit that never passed main's required CI gates.
+      - name: Verify tag SHA is an ancestor of origin/main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME points at $GITHUB_SHA, which is NOT an ancestor of origin/main."
+            echo "::error::Refusing to publish from an unmerged commit. Cherry-pick / merge to main first, then re-tag."
+            exit 1
+          fi
+          echo "Tag SHA is an ancestor of origin/main; ancestor gate passes."
+
+      # P0-2-tag (2026-04-26): also require that all required CI checks for
+      # this commit reported `success`. Required checks are declared in
+      # branch-protection.yml and enforced on `main`, but a tag push event
+      # bypasses branch protection — this Checks API gate restores the same
+      # contract on the tag flow.
+      - name: Verify required CI checks passed on tag SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Read the required-context names from branch-protection.yml so
+          # this gate stays in sync with the declared main protection
+          # automatically (PR #209 review feedback: hard-coded list drifted
+          # from the actual `contexts:` block, and a space-delimited string
+          # word-split names like `lint (20)` into 3 tokens).
+          mapfile -t REQUIRED < <(python3 - <<'PY'
+          path = '.github/branch-protection.yml'
+          in_contexts = False
+          with open(path, encoding='utf-8') as f:
+              for raw in f:
+                  line = raw.rstrip()
+                  s = line.strip()
+                  if s.startswith('#') or not s:
+                      continue
+                  if s.startswith('contexts:'):
+                      in_contexts = True
+                      continue
+                  if in_contexts and s.startswith('- '):
+                      print(s[2:].strip())
+                  elif in_contexts and not line.startswith(' '):
+                      in_contexts = False
+          PY
+          )
+          if [ "${#REQUIRED[@]}" -eq 0 ]; then
+            echo "::error::Could not read required contexts from .github/branch-protection.yml"
+            exit 1
+          fi
+          echo "Required contexts (${#REQUIRED[@]}): ${REQUIRED[*]}"
+
+          # Fetch every check-run for this SHA. Pages of 100 are the max
+          # GitHub returns; loop until we get a partial page.
+          page=1
+          rows=""
+          while :; do
+            chunk=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100&page=$page" \
+              --jq '.check_runs[] | "\(.name)\t\(.conclusion // "pending")"')
+            [ -z "$chunk" ] && break
+            rows="${rows}${chunk}"$'\n'
+            count=$(printf '%s\n' "$chunk" | wc -l | tr -d ' ')
+            [ "$count" -lt 100 ] && break
+            page=$((page + 1))
+          done
+
+          # The same context name can have multiple check-runs (re-runs). Pick
+          # the latest one that has a terminal conclusion (i.e. != pending).
+          missing=()
+          failed=()
+          for name in "${REQUIRED[@]}"; do
+            line=$(printf '%s' "$rows" | awk -F'\t' -v n="$name" '$1==n && $2!="pending" {last=$0} END{print last}')
+            if [ -z "$line" ]; then
+              missing+=("$name")
+              continue
+            fi
+            conclusion=$(printf '%s\n' "$line" | awk -F'\t' '{print $2}')
+            if [ "$conclusion" != "success" ]; then
+              failed+=("$name=$conclusion")
+            fi
+          done
+
+          if [ "${#missing[@]}" -gt 0 ] || [ "${#failed[@]}" -gt 0 ]; then
+            echo "::error::Required-checks gate failed for tag $GITHUB_REF_NAME on SHA $GITHUB_SHA"
+            [ "${#missing[@]}" -gt 0 ] && echo "::error::Missing required checks: ${missing[*]}"
+            [ "${#failed[@]}" -gt 0 ] && echo "::error::Non-success required checks: ${failed[*]}"
+            exit 1
+          fi
+          echo "All required CI checks reported success on $GITHUB_SHA."
 
       - name: Check if release already exists
         id: check

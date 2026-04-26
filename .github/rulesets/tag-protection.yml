@@ -1,0 +1,39 @@
+# Tag protection ruleset for AgentLint (P0-2-tag, 2026-04-26).
+#
+# Goal: prevent any actor (including non-admin maintainers and forked-fork
+# release attempts) from pushing arbitrary `v*` tags that bypass main's
+# required CI gates. The release.yml workflow ALSO enforces a `git
+# merge-base --is-ancestor` + Checks API gate; this ruleset is the
+# branch-protection-style outer gate.
+#
+# Apply via: bash scripts/setup-tag-protection.sh --apply
+# Verify via: bash scripts/setup-tag-protection.sh --verify
+#
+# References:
+#   - https://docs.github.com/en/rest/repos/rules
+#   - https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets
+name: tag-protection-v
+target: tag
+enforcement: active
+conditions:
+  ref_name:
+    include:
+      - refs/tags/v*
+    exclude: []
+rules:
+  # Block force-push / rewrite of an existing v* tag.
+  - type: non_fast_forward
+  # Block deletion of v* tags via push.
+  - type: deletion
+bypass_actors:
+  # Owner — can override during emergency rollback / hot-fix tagging.
+  # actor_id is the GitHub user id; bypass_mode "always" lets the actor
+  # bypass without per-attempt confirmation.
+  - actor_id: 130952152
+    actor_type: User
+    bypass_mode: always
+  # GitHub Actions bot — release.yml uses GITHUB_TOKEN to PATCH the v1
+  # moving tag; without bypass, the moving-tag update would be rejected.
+  - actor_id: 71
+    actor_type: RepositoryRole
+    bypass_mode: always
