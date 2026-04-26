@@ -1487,7 +1487,11 @@ runTest('branch protection script has a verify mode that compares live protectio
 runTest('install.sh reports /al copy failures instead of unconditional success', () => {
   const install = fs.readFileSync(path.join(ROOT, 'scripts', 'install.sh'), 'utf8');
   const commandBlock = install.slice(install.indexOf('# /al global command'));
-  assert.match(commandBlock, /elif ! COPY_OUT=\$\(cp "\$CMD_SRC" "\$CMD_DST" 2>&1\); then/,
+  // Either `elif !` (older flat structure) or `if !` (current structure with
+  // a separate PLUGIN_INSTALL_OK gate that early-skips the copy on upstream
+  // failure) is acceptable — what matters is that cp failure is captured,
+  // not the surrounding control-flow shape.
+  assert.match(commandBlock, /(?:if|elif) ! COPY_OUT=\$\(cp "\$CMD_SRC" "\$CMD_DST" 2>&1\); then/,
     'install.sh must capture cp failure when installing /al command');
   assert.match(commandBlock, /Could not copy \$CMD_SRC to \$CMD_DST/,
     'install.sh must surface the failed copy source and destination');
