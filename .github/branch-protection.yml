@@ -26,9 +26,10 @@ required_status_checks:
   # mistake. The correct posture is to keep these out of the YAML
   # (and accept that live main protection has drift, OR remove them
   # from live separately as an admin operation).
-  # Live remote protection drift is acknowledged by `setup-branch-
-  # protection.sh --verify` — that drift is intentional given the
-  # contexts above are all the release-side gate can satisfy.
+  # Live remote protection drift is acknowledged when running
+  # `bash scripts/setup-branch-protection.sh --verify` — that drift
+  # is intentional given the contexts above are all the release-side
+  # gate can satisfy.
   contexts:
     - test (ubuntu-latest, 20)
     - test (ubuntu-latest, 22)
