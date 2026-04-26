@@ -127,10 +127,61 @@ test_setup_actually_emits_ensure_base_commit() {
   fi
 }
 
+# Lock security-critical content into specific generated workflows so a
+# future drift (in-tree workflow updated, template forgotten) cannot ship
+# a stripped-down version to end users — same regression class as v1.1.9.
+# Each entry: <generated workflow> | <must-contain marker> | <must-NOT-contain marker, optional>
+# Markers are extended-regex patterns evaluated by `grep -qE`.
+test_setup_locks_security_critical_workflow_content() {
+  local repo="$TMP_ROOT/content-locks"
+  mkdir -p "$repo"
+
+  if ! bash "$ROOT_DIR/scripts/setup.sh" --lang ts --project-dir "$repo" \
+        --workflows-only --no-install --init-git \
+        >"$TMP_ROOT/content.log" 2>&1; then
+    TEST_ERROR="setup --workflows-only --init-git failed; see $TMP_ROOT/content.log"
+    return 1
+  fi
+
+  local failures=()
+  check_must_contain() {
+    local path="$1" pattern="$2" reason="$3"
+    if [[ ! -f "$path" ]]; then
+      failures+=("$path missing — $reason")
+      return
+    fi
+    if ! grep -qE "$pattern" "$path"; then
+      failures+=("$path is missing required marker /$pattern/ — $reason")
+    fi
+  }
+
+  # release.yml: P0-2-tag gates from v1.1.8 must be in every generated repo.
+  check_must_contain "$repo/.github/workflows/release.yml" \
+    'merge-base --is-ancestor' \
+    "release.yml must enforce ancestor-of-main gate (v1.1.8 P0-2-tag)"
+  check_must_contain "$repo/.github/workflows/release.yml" \
+    'check-runs' \
+    "release.yml must enforce required-checks-API gate (v1.1.8 P0-2-tag)"
+
+  # hygiene.yml must use the PR base SHA composite action, not the
+  # `origin/main..HEAD` author-check that ate git log failures silently
+  # (F003 S1 fail-closed hygiene).
+  check_must_contain "$repo/.github/workflows/hygiene.yml" \
+    'github\.event\.pull_request\.base\.sha' \
+    "hygiene.yml must reference PR base SHA explicitly"
+
+  if (( ${#failures[@]} > 0 )); then
+    TEST_ERROR=$'security-critical template content drifted:\n  '"$(printf '%s\n  ' "${failures[@]}")"
+    return 1
+  fi
+}
+
 run_test "every 'uses: ./<path>' in generated workflows resolves to a generated action" \
   test_setup_emits_referenced_local_actions
 run_test "ensure-base-commit composite action is emitted alongside hygiene.yml" \
   test_setup_actually_emits_ensure_base_commit
+run_test "security-critical template content stays locked (release gates, hygiene base SHA)" \
+  test_setup_locks_security_critical_workflow_content
 
 echo "Summary: total=$TEST_COUNT passed=$PASS_COUNT failed=$FAIL_COUNT"
 [[ "$FAIL_COUNT" -eq 0 ]]
