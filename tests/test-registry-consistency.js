@@ -449,11 +449,10 @@ runTest('branch-protection.yml declares the canonical required checks', () => {
   assert.match(yml, /repository:\s*0xmariowu\/AgentLint/);
   assert.match(yml, /branch:\s*main/);
 
-  // Synced 2026-04-26 to live remote protection (queried via
-  // `gh api repos/.../branches/main/protection`). The previous list was
-  // stale from before the v1.1.6 protection restore. release.yml's
-  // P0-2-tag Checks-API gate reads these names and looks them up against
-  // each tag SHA's check-runs, so they must match what CI actually emits.
+  // Synced 2026-04-26 to the contexts CI actually emits on push:main.
+  // `check-test-pairing` (PR-only workflow) and `CodeQL` (duplicates
+  // `analyze`) were dropped — they never appear on tag SHAs and made
+  // release.yml's P0-2-tag gate unsatisfiable.
   const required = [
     'test (ubuntu-latest, 20)',
     'test (ubuntu-latest, 22)',
@@ -465,9 +464,7 @@ runTest('branch-protection.yml declares the canonical required checks', () => {
     'npm-e2e (macos-latest)',
     'npm-e2e (windows-latest)',
     'lint',
-    'check-test-pairing',
     'analyze',
-    'CodeQL',
     'Semgrep',
     'scan',
   ];

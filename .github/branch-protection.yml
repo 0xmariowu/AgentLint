@@ -2,10 +2,17 @@ repository: 0xmariowu/AgentLint
 branch: main
 required_status_checks:
   strict: true
-  # Names match live remote protection (queried 2026-04-26 via
-  # `gh api repos/.../branches/main/protection --jq .required_status_checks.contexts`).
-  # Keep this list in sync with the live configuration so release.yml's
-  # P0-2-tag Checks-API gate can resolve every required check on a tag SHA.
+  # Names match the actual check-runs CI emits on `push: main` events.
+  # Removed two contexts that never appear on tag SHAs (so release.yml's
+  # P0-2-tag gate could never satisfy them):
+  #   - `check-test-pairing` — produced by .github/workflows/test-required.yml
+  #     which only runs on pull_request events.
+  #   - `CodeQL` — duplicates `analyze`. The CodeQL workflow's only job is
+  #     `analyze`, so the actual check-run name on every commit is
+  #     `analyze`. Listing both made one of them perpetually missing.
+  # Live remote protection should be re-applied via
+  # `bash scripts/setup-branch-protection.sh --apply` after this lands so
+  # the same drift doesn't reappear.
   contexts:
     - test (ubuntu-latest, 20)
     - test (ubuntu-latest, 22)
@@ -17,8 +24,6 @@ required_status_checks:
     - npm-e2e (macos-latest)
     - npm-e2e (windows-latest)
     - lint
-    - check-test-pairing
     - analyze
-    - CodeQL
     - Semgrep
     - scan
