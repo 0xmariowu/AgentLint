@@ -112,6 +112,15 @@ test_setup_actually_emits_ensure_base_commit() {
     TEST_ERROR="setup did not generate .github/actions/ensure-base-commit/action.yml"
     return 1
   fi
+
+  # The template is a duplicate of the in-tree authoritative copy. Lock them
+  # together so a future edit to one cannot silently drift from the other —
+  # downstream repos would otherwise inherit a stale ensure-base-commit.
+  if ! diff -q "$repo/.github/actions/ensure-base-commit/action.yml" \
+                "$ROOT_DIR/.github/actions/ensure-base-commit/action.yml" >/dev/null 2>&1; then
+    TEST_ERROR="generated ensure-base-commit/action.yml drifted from $ROOT_DIR/.github/actions/ensure-base-commit/action.yml — re-sync templates/workflows/actions/ensure-base-commit/action.yml"
+    return 1
+  fi
 }
 
 run_test "every 'uses: ./<path>' in generated workflows resolves to a generated action" \
