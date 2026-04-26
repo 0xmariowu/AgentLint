@@ -1,10 +1,37 @@
-# Tag protection ruleset for AgentLint (P0-2-tag, 2026-04-26).
+# Tag protection ruleset for AgentLint (P0-2-tag, 2026-04-26; refined 2026-04-26).
 #
 # Goal: prevent any actor (including non-admin maintainers and forked-fork
-# release attempts) from pushing arbitrary `v*` tags that bypass main's
-# required CI gates. The release.yml workflow ALSO enforces a `git
-# merge-base --is-ancestor` + Checks API gate; this ruleset is the
-# branch-protection-style outer gate.
+# release attempts) from pushing or rewriting arbitrary semver release
+# tags that bypass main's required CI gates. The release.yml workflow
+# ALSO enforces `git merge-base --is-ancestor` + a Checks API gate; this
+# ruleset is the branch-protection-style outer gate.
+#
+# Why the include pattern is `v*.*.*`:
+# - GitHub's ruleset ref globs are fnmatch-style — `*` matches any chars
+#   INCLUDING dots, so this glob actually matches "v + at least two dots
+#   somewhere in the name". In practice that is exactly the set we want
+#   to lock: every immutable semver release tag (v1.1.10, v2.0.0, …) and
+#   any extended-form tag (v1.1.10-rc1, v1.2.3.4 if we ever ship one).
+# - Moving major-version tags (v1, v2) are intentionally NOT covered —
+#   release.yml force-pushes the moving v1 to track the latest patch on
+#   each release. Bringing them under non_fast_forward would block the
+#   release flow, and any bypass actor we'd add (Integration /
+#   RepositoryRole) has its own auth surface to defend.
+# - Two-segment tags (v1.1) are also not covered; no current pipeline
+#   writes them. If we adopt them, extend the include list explicitly
+#   (`refs/tags/v*.*` would catch them, plus a tightening pattern if
+#   we want to keep semver patch coverage exclusive).
+#
+# bypass_actors deliberately empty: nothing should be force-pushing
+# semver-shaped tags. If an emergency requires it, the repo admin can
+# edit this ruleset directly via the GitHub UI for the duration.
+#
+# Earlier drafts had bypass entries with `actor_type: User` (not a valid
+# rulesets actor_type) and `actor_type: RepositoryRole / actor_id: 71`
+# (71 is not a built-in role ID); GitHub's API rejected both with
+# "Invalid bypass actor" 422. Removing them is correct now that the
+# include pattern excludes the moving major-version tags that would
+# otherwise need bypass.
 #
 # Apply via: bash scripts/setup-tag-protection.sh --apply
 # Verify via: bash scripts/setup-tag-protection.sh --verify
@@ -18,22 +45,11 @@ enforcement: active
 conditions:
   ref_name:
     include:
-      - refs/tags/v*
+      - refs/tags/v*.*.*
     exclude: []
 rules:
-  # Block force-push / rewrite of an existing v* tag.
+  # Block force-push / rewrite of an existing semver tag.
   - type: non_fast_forward
-  # Block deletion of v* tags via push.
+  # Block deletion of semver tags via push.
   - type: deletion
-bypass_actors:
-  # Owner — can override during emergency rollback / hot-fix tagging.
-  # actor_id is the GitHub user id; bypass_mode "always" lets the actor
-  # bypass without per-attempt confirmation.
-  - actor_id: 130952152
-    actor_type: User
-    bypass_mode: always
-  # GitHub Actions bot — release.yml uses GITHUB_TOKEN to PATCH the v1
-  # moving tag; without bypass, the moving-tag update would be rejected.
-  - actor_id: 71
-    actor_type: RepositoryRole
-    bypass_mode: always
+bypass_actors: []
