@@ -946,6 +946,14 @@ function main() {
   // Accept scores from stdin when no file argument given (e.g. pipeline: scorer.js | reporter.js)
   let scores;
   if (!scoresFile) {
+    // P0-7 (2026-04-26): when invoked in a TTY with no piped scores, fail
+    // fast instead of blocking on fs.readFileSync(0) — that read waits for
+    // the user to type/Ctrl-D, which looks like an indefinite hang.
+    if (process.stdin.isTTY) {
+      process.stderr.write('Usage: reporter.js <scores.json> [--before before-scores.json] [--plan plan.json] [--output-dir dir] [--format terminal|md|jsonl|html|sarif|all] [--sarif-include-all] [--fail-below 0-100]\n');
+      process.stderr.write('reporter.js: no scores file argument and stdin is a TTY (no piped input). Provide a path or pipe scorer output.\n');
+      process.exit(1);
+    }
     const stdinData = fs.readFileSync(0, 'utf8').trim();
     if (!stdinData) {
       process.stderr.write('Usage: reporter.js <scores.json> [--before before-scores.json] [--plan plan.json] [--output-dir dir] [--format terminal|md|jsonl|html|sarif|all] [--sarif-include-all] [--fail-below 0-100]\n');
