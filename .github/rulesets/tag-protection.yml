@@ -6,17 +6,21 @@
 # ALSO enforces `git merge-base --is-ancestor` + a Checks API gate; this
 # ruleset is the branch-protection-style outer gate.
 #
-# Why the include pattern is `v*.*.*` (three segments):
-# - Immutable release tags (v1.1.9, v1.1.10, v2.0.0, ...) MUST be locked
-#   against rewrite or deletion. Three-segment glob captures them.
+# Why the include pattern is `v*.*.*`:
+# - GitHub's ruleset ref globs are fnmatch-style — `*` matches any chars
+#   INCLUDING dots, so this glob actually matches "v + at least two dots
+#   somewhere in the name". In practice that is exactly the set we want
+#   to lock: every immutable semver release tag (v1.1.10, v2.0.0, …) and
+#   any extended-form tag (v1.1.10-rc1, v1.2.3.4 if we ever ship one).
 # - Moving major-version tags (v1, v2) are intentionally NOT covered —
 #   release.yml force-pushes the moving v1 to track the latest patch on
 #   each release. Bringing them under non_fast_forward would block the
-#   release flow, and any bypass actor we'd add (Integration / RepositoryRole)
-#   has its own auth surface to defend.
-# - Two-segment tags (v1.1) are ambiguous; no current pipeline writes
-#   them. If we adopt them, extend the include list explicitly rather
-#   than loosen the glob.
+#   release flow, and any bypass actor we'd add (Integration /
+#   RepositoryRole) has its own auth surface to defend.
+# - Two-segment tags (v1.1) are also not covered; no current pipeline
+#   writes them. If we adopt them, extend the include list explicitly
+#   (`refs/tags/v*.*` would catch them, plus a tightening pattern if
+#   we want to keep semver patch coverage exclusive).
 #
 # bypass_actors deliberately empty: nothing should be force-pushing
 # semver-shaped tags. If an emergency requires it, the repo admin can

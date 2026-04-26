@@ -74,21 +74,41 @@ with open(payload_path, 'w', encoding='utf-8') as f:
     json.dump(cfg, f)
 PY
 
+# Resolve every ruleset id whose summary `name` matches `expected_name`.
+# Prints one id per line. Uses jq's --arg so a config name containing
+# quotes / backslashes can't break the filter or be injected into a
+# different ruleset selection.
+expected_name=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d['name'])" "$payload")
+matching_ids=$(gh api "repos/${REPO}/rulesets" \
+  | jq -r --arg name "$expected_name" '.[] | select(.name == $name) | .id')
+matching_count=0
+if [ -n "$matching_ids" ]; then
+  matching_count=$(printf '%s\n' "$matching_ids" | wc -l | tr -d ' ')
+fi
+
 if [ "$MODE" = "verify" ]; then
   echo "Verifying tag ruleset on ${REPO} against ${CONFIG}" >&2
   # The list endpoint `repos/.../rulesets` returns summaries WITHOUT
   # `conditions` / `rules` / `bypass_actors`, so the matcher below would
-  # always report false drift on those fields if we only fetched the list.
-  # Look up the ruleset id by name in the list, then GET the detail
-  # endpoint, and wrap the single object in an array so the existing
-  # list-shaped matcher contract still works.
-  expected_name=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d['name'])" "$payload")
-  detail_id=$(gh api "repos/${REPO}/rulesets" --jq ".[] | select(.name == \"${expected_name}\") | .id" | head -1)
-  if [ -z "$detail_id" ]; then
+  # report false drift on those fields if we only fetched the list. Two
+  # steps: count names in the list (catches duplicates), then GET each
+  # match's detail. We pass an array of detail objects to the matcher so
+  # the existing list-shaped contract still works AND the duplicate guard
+  # at `len(matching) > 1` keeps firing.
+  if [ "$matching_count" -eq 0 ]; then
     echo "${CONFIG}: no tag ruleset named \"${expected_name}\" found on remote" >&2
     exit 1
   fi
-  printf '[%s]\n' "$(gh api "repos/${REPO}/rulesets/${detail_id}")" > "$actual"
+  {
+    printf '['
+    first=1
+    while IFS= read -r id; do
+      [ -z "$id" ] && continue
+      if [ "$first" -eq 1 ]; then first=0; else printf ','; fi
+      gh api "repos/${REPO}/rulesets/${id}"
+    done <<< "$matching_ids"
+    printf ']'
+  } > "$actual"
   python3 - "$CONFIG" "$payload" "$actual" <<'PY'
 import json
 import sys
@@ -113,7 +133,7 @@ if live.get('target') != expected.get('target'):
     errors.append(f'target: expected {expected["target"]}, live {live.get("target")}')
 
 # Conditions: ref_name.include must be a superset/equal — GitHub may
-# normalize patterns, but the v* match must remain.
+# normalize patterns, but the configured match must remain.
 exp_inc = sorted(expected.get('conditions', {}).get('ref_name', {}).get('include', []))
 liv_inc = sorted((live.get('conditions') or {}).get('ref_name', {}).get('include', []))
 if not all(any(p == lp or p in lp for lp in liv_inc) for p in exp_inc):
@@ -125,6 +145,22 @@ liv_rules = sorted(r.get('type') for r in (live.get('rules') or []))
 missing_rules = [r for r in exp_rules if r not in liv_rules]
 if missing_rules:
     errors.append(f'rules: live missing required types {missing_rules}')
+
+# bypass_actors must match exactly. The earlier draft of this ruleset
+# was rejected by the API specifically because of broken bypass_actor
+# entries, so this assertion is the canary that catches a regression
+# where someone re-adds bad entries (or the live ruleset gets manually
+# edited via the UI).
+def _norm_bypass(items):
+    return sorted(
+        (i.get('actor_id'), i.get('actor_type'), i.get('bypass_mode'))
+        for i in (items or [])
+    )
+
+exp_bypass = _norm_bypass(expected.get('bypass_actors', []))
+liv_bypass = _norm_bypass(live.get('bypass_actors', []))
+if exp_bypass != liv_bypass:
+    errors.append(f'bypass_actors: expected {exp_bypass}, live {liv_bypass}')
 
 if errors:
     print(f'{config_path}: live ruleset drift — ' + '; '.join(errors), file=sys.stderr)
@@ -138,9 +174,12 @@ else
   # leaves the live API with two rulesets of the same name and makes
   # --verify pick an arbitrary one).
   echo "Applying tag ruleset to ${REPO} from ${CONFIG}" >&2
-  expected_name=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print(d['name'])" "$payload")
-  existing_id=$(gh api "repos/${REPO}/rulesets" --jq ".[] | select(.name == \"${expected_name}\") | .id" | head -1)
-  if [ -n "$existing_id" ]; then
+  if [ "$matching_count" -gt 1 ]; then
+    echo "${CONFIG}: ${matching_count} live rulesets named \"${expected_name}\" — duplicate; clean up via UI before re-applying" >&2
+    exit 1
+  fi
+  if [ "$matching_count" -eq 1 ]; then
+    existing_id=$(printf '%s\n' "$matching_ids" | head -1)
     echo "Updating existing ruleset id=${existing_id}" >&2
     gh api --method PUT "repos/${REPO}/rulesets/${existing_id}" --input "$payload"
   else
