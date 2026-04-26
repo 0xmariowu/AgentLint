@@ -800,8 +800,12 @@ _al_hooks_safe_to_write() {
   [[ $copied -le 0 ]] && return 0
   # Explicit override.
   [[ "$FORCE" == true ]] && return 0
-  # Must be inside a real project dir for git inspection.
-  [[ -d "$PROJECT/.git" ]] || return 0
+  # Must be inside a real git project for inspection. Use git itself rather
+  # than `[[ -d "$PROJECT/.git" ]]` because in linked worktrees and most
+  # submodules `.git` is a FILE (containing `gitdir: <path>`), not a dir —
+  # the dir check would skip the overwrite gate exactly in those workflows
+  # (P0-3-followup PR #206 review feedback, 2026-04-26).
+  git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1 || return 0
 
   local existing
   existing=$(git -C "$PROJECT" config core.hooksPath 2>/dev/null || true)
@@ -810,7 +814,16 @@ _al_hooks_safe_to_write() {
     return 1
   fi
 
-  if [[ -d "$PROJECT/.git/hooks" ]]; then
+  # Resolve the real hooks dir via git so worktrees / submodules (where the
+  # repo's .git is a FILE pointing elsewhere) are still gated.
+  local hooks_dir
+  hooks_dir=$(git -C "$PROJECT" rev-parse --git-path hooks 2>/dev/null || echo "")
+  if [[ -n "$hooks_dir" && "$hooks_dir" != /* ]]; then
+    hooks_dir="$PROJECT/$hooks_dir"
+  fi
+  [[ -z "$hooks_dir" ]] && hooks_dir="$PROJECT/.git/hooks"
+
+  if [[ -d "$hooks_dir" ]]; then
     local hook
     while IFS= read -r -d '' hook; do
       # Skip the standard `*.sample` template files git ships with.
@@ -818,7 +831,7 @@ _al_hooks_safe_to_write() {
       [[ -x "$hook" ]] || continue
       err "refusing to overwrite existing executable git hook at $hook (use --force to override)"
       return 1
-    done < <(find "$PROJECT/.git/hooks" -maxdepth 1 -type f -print0 2>/dev/null)
+    done < <(find "$hooks_dir" -maxdepth 1 -type f -print0 2>/dev/null)
   fi
   return 0
 }
