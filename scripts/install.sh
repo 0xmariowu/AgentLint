@@ -67,13 +67,31 @@ if [ -f "$CMD_SRC" ]; then
     info "Could not create $HOME/.claude/commands"
     [ -n "$MKDIR_OUT" ] && info "$MKDIR_OUT"
     PLUGIN_INSTALL_OK=false
-  elif ! COPY_OUT=$(cp "$CMD_SRC" "$CMD_DST" 2>&1); then
-    warn "/al command" "[not installed]"
-    info "Could not copy $CMD_SRC to $CMD_DST"
-    [ -n "$COPY_OUT" ] && info "$COPY_OUT"
-    PLUGIN_INSTALL_OK=false
   else
-    ok "/al command" "[installed]"
+    # If the user already has a different al.md (a custom override or
+    # leftover from a previous install), back it up instead of silently
+    # clobbering. cmp is a cheap byte-equal check; nothing to do when
+    # the existing file already matches the upstream template.
+    if [ -f "$CMD_DST" ] && ! cmp -s "$CMD_SRC" "$CMD_DST"; then
+      BACKUP="${CMD_DST}.bak.$(date +%s)"
+      if mv "$CMD_DST" "$BACKUP" 2>/dev/null; then
+        info "Existing /al.md differed; backed up to ${BACKUP}"
+      else
+        warn "/al command" "[not installed]"
+        info "Could not back up existing $CMD_DST; aborting overwrite"
+        PLUGIN_INSTALL_OK=false
+      fi
+    fi
+    if [ "$PLUGIN_INSTALL_OK" = false ]; then
+      :
+    elif ! COPY_OUT=$(cp "$CMD_SRC" "$CMD_DST" 2>&1); then
+      warn "/al command" "[not installed]"
+      info "Could not copy $CMD_SRC to $CMD_DST"
+      [ -n "$COPY_OUT" ] && info "$COPY_OUT"
+      PLUGIN_INSTALL_OK=false
+    else
+      ok "/al command" "[installed]"
+    fi
   fi
 else
   warn "/al command" "[not installed]"
