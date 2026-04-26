@@ -17,7 +17,161 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
+          # `git merge-base --is-ancestor` below needs full history of the
+          # tag commit and origin/main; default depth=1 gives a false negative.
           fetch-depth: 0
+
+      # Refuse to publish a tag whose commit is not already on origin/main.
+      # Without this, anyone with tag-push permission could trigger a
+      # GitHub Release from a commit that never passed main's required CI.
+      - name: Verify tag SHA is an ancestor of origin/main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME points at $GITHUB_SHA, which is NOT an ancestor of origin/main."
+            echo "::error::Refusing to publish from an unmerged commit. Cherry-pick / merge to main first, then re-tag."
+            exit 1
+          fi
+          echo "Tag SHA is an ancestor of origin/main; ancestor gate passes."
+
+      # Require every check-runs context that branch-protection requires
+      # on `main` to have reported `success` on the tag SHA. A tag push
+      # bypasses branch protection by design, so this gate restores the
+      # same contract on the tag flow. Required contexts come from (in
+      # order): `.github/branch-protection.yml`, the live branch
+      # protection API, then a graceful skip with a warning.
+      - name: Verify required CI checks passed on tag SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          REQUIRED=()
+          if [ -f .github/branch-protection.yml ]; then
+            mapfile -t REQUIRED < <(python3 - <<'PY'
+          path = '.github/branch-protection.yml'
+          in_contexts = False
+          with open(path, encoding='utf-8') as f:
+              for raw in f:
+                  line = raw.rstrip()
+                  s = line.strip()
+                  if s.startswith('#') or not s:
+                      continue
+                  if s.startswith('contexts:'):
+                      in_contexts = True
+                      continue
+                  if in_contexts and s.startswith('- '):
+                      print(s[2:].strip())
+                  elif in_contexts and not line.startswith(' '):
+                      in_contexts = False
+          PY
+            )
+            echo "Required contexts (from .github/branch-protection.yml): ${#REQUIRED[@]}"
+          fi
+
+          if [ "${#REQUIRED[@]}" -eq 0 ]; then
+            api_contexts=$(gh api "repos/$GITHUB_REPOSITORY/branches/main/protection" \
+              --jq '.required_status_checks.contexts // [] | .[]' 2>/dev/null || true)
+            if [ -n "$api_contexts" ]; then
+              mapfile -t REQUIRED <<< "$api_contexts"
+              echo "Required contexts (from branch protection API): ${#REQUIRED[@]}"
+            fi
+          fi
+
+          if [ "${#REQUIRED[@]}" -eq 0 ]; then
+            echo "::warning::No required CI contexts declared for main. Skipping check-runs gate; rely on the ancestor gate above."
+            exit 0
+          fi
+          echo "Required contexts: ${REQUIRED[*]}"
+
+          # Fetch every check-run for this SHA in pages of 100.
+          fetch_runs_for_sha() {
+            local sha="$1" page=1 rows="" chunk count
+            while :; do
+              chunk=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha/check-runs?per_page=100&page=$page" \
+                --jq '.check_runs[] | "\(.name)\t\(.conclusion // "pending")"')
+              [ -z "$chunk" ] && break
+              rows="${rows}${chunk}"$'\n'
+              count=$(printf '%s\n' "$chunk" | wc -l | tr -d ' ')
+              [ "$count" -lt 100 ] && break
+              page=$((page + 1))
+            done
+            printf '%s' "$rows"
+          }
+
+          # Resolve a required context against fetched rows. Accepts an
+          # exact name or any matrix child whose name starts with `$name (`
+          # so required `lint` is satisfied by `lint (20)` / `lint (22)`.
+          resolve_required() {
+            local rows="$1" name="$2" prefix="${name} (" result="missing"
+            while IFS=$'\t' read -r run_name conclusion; do
+              [ -z "$run_name" ] && continue
+              if [ "$run_name" = "$name" ] || [ "${run_name#"$prefix"}" != "$run_name" ]; then
+                if [ "$conclusion" = "success" ]; then
+                  echo "success"; return
+                fi
+                if [ "$conclusion" = "pending" ] || [ -z "$conclusion" ]; then
+                  result="pending"
+                elif [ "$result" != "pending" ]; then
+                  result="$conclusion"
+                fi
+              fi
+            done < <(printf '%s' "$rows")
+            echo "$result"
+          }
+
+          # Try up to 20 attempts × 30s = ~10 min so a concurrent CI job
+          # on the same SHA has time to land. Squash-merges occasionally
+          # don't fire `push` events for the new main commit, leaving the
+          # tag SHA with no check-runs — fall back to the parent SHA only
+          # to fill gaps (a recorded failure on the tag SHA wins).
+          attempt=1
+          max_attempts=20
+          while :; do
+            tag_rows=$(fetch_runs_for_sha "$GITHUB_SHA")
+            parent=$(git rev-parse "${GITHUB_SHA}^" 2>/dev/null || echo "")
+            parent_rows=""
+            [ -n "$parent" ] && parent_rows=$(fetch_runs_for_sha "$parent")
+
+            missing=(); failed=(); pending=()
+            for name in "${REQUIRED[@]}"; do
+              status=$(resolve_required "$tag_rows" "$name")
+              if [ "$status" = "missing" ] && [ -n "$parent_rows" ]; then
+                status=$(resolve_required "$parent_rows" "$name")
+              fi
+              case "$status" in
+                success) ;;
+                missing) missing+=("$name") ;;
+                pending) pending+=("$name") ;;
+                *)       failed+=("$name=$status") ;;
+              esac
+            done
+
+            if [ "${#missing[@]}" -eq 0 ] && [ "${#failed[@]}" -eq 0 ] && [ "${#pending[@]}" -eq 0 ]; then
+              echo "All ${#REQUIRED[@]} required CI checks reported success."
+              break
+            fi
+
+            if [ "${#failed[@]}" -gt 0 ]; then
+              echo "::error::Required-checks gate failed (attempt ${attempt}) for tag $GITHUB_REF_NAME on SHA $GITHUB_SHA"
+              echo "::error::Non-success required checks: ${failed[*]}"
+              [ "${#missing[@]}" -gt 0 ] && echo "::error::Also missing: ${missing[*]}"
+              [ "${#pending[@]}" -gt 0 ] && echo "::error::Also pending: ${pending[*]}"
+              exit 1
+            fi
+
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              echo "::error::Required-checks gate timed out after ${attempt} attempts for tag $GITHUB_REF_NAME on SHA $GITHUB_SHA"
+              [ "${#missing[@]}" -gt 0 ] && echo "::error::Still missing: ${missing[*]}"
+              [ "${#pending[@]}" -gt 0 ] && echo "::error::Still pending: ${pending[*]}"
+              exit 1
+            fi
+
+            echo "::notice::Required-checks gate attempt ${attempt}/${max_attempts}: missing=${#missing[@]} pending=${#pending[@]}; sleeping 30s before retry"
+            attempt=$((attempt + 1))
+            sleep 30
+          done
 
       - name: Extract version from tag
         id: version

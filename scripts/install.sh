@@ -67,13 +67,38 @@ if [ -f "$CMD_SRC" ]; then
     info "Could not create $HOME/.claude/commands"
     [ -n "$MKDIR_OUT" ] && info "$MKDIR_OUT"
     PLUGIN_INSTALL_OK=false
-  elif ! COPY_OUT=$(cp "$CMD_SRC" "$CMD_DST" 2>&1); then
+  elif [ "$PLUGIN_INSTALL_OK" = false ]; then
+    # An earlier plugin step (marketplace / install) already failed; do not
+    # back up or overwrite the existing al.md when we can't place a fresh
+    # copy afterwards. Leaving the user's file untouched is the safe choice.
     warn "/al command" "[not installed]"
-    info "Could not copy $CMD_SRC to $CMD_DST"
-    [ -n "$COPY_OUT" ] && info "$COPY_OUT"
-    PLUGIN_INSTALL_OK=false
+    info "Skipping al.md update because an earlier plugin step failed"
   else
-    ok "/al command" "[installed]"
+    # If the user already has a different al.md (custom override or stale
+    # prior install), back it up instead of silently clobbering. cmp is a
+    # cheap byte-equal check; nothing to do when the existing file already
+    # matches the upstream template. Suffix combines epoch + pid + RANDOM
+    # so back-to-back installs in the same second cannot collide.
+    if [ -f "$CMD_DST" ] && ! cmp -s "$CMD_SRC" "$CMD_DST"; then
+      BACKUP="${CMD_DST}.bak.$(date +%s)-$$-${RANDOM}"
+      if mv "$CMD_DST" "$BACKUP" 2>/dev/null; then
+        info "Existing /al.md differed; backed up to ${BACKUP}"
+      else
+        warn "/al command" "[not installed]"
+        info "Could not back up existing $CMD_DST; aborting overwrite"
+        PLUGIN_INSTALL_OK=false
+      fi
+    fi
+    if [ "$PLUGIN_INSTALL_OK" = true ]; then
+      if ! COPY_OUT=$(cp "$CMD_SRC" "$CMD_DST" 2>&1); then
+        warn "/al command" "[not installed]"
+        info "Could not copy $CMD_SRC to $CMD_DST"
+        [ -n "$COPY_OUT" ] && info "$COPY_OUT"
+        PLUGIN_INSTALL_OK=false
+      else
+        ok "/al command" "[installed]"
+      fi
+    fi
   fi
 else
   warn "/al command" "[not installed]"
