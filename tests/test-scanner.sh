@@ -327,6 +327,36 @@ test_s6_no_sklearn_false_positive() {
 
 run_test "S6: sklearn does not trigger secret detection" test_s6_no_sklearn_false_positive
 
+# ── S6: secret in YAML config files flags and populates examples without crashing ──
+
+S6_YAML="${TEMP_ROOT}/s6-yaml"
+mkdir -p "${S6_YAML}/config"
+git -C "${S6_YAML}" init --quiet 2>/dev/null || true
+cat > "${S6_YAML}/config/deploy.yml" <<'FIXTURE'
+# Mock deployment token
+token: ghp_111111111111111111111111111111111111
+FIXTURE
+git -C "${S6_YAML}" add -A 2>/dev/null && git -C "${S6_YAML}" -c user.name=test -c user.email=test@test.com commit -m "init" --quiet 2>/dev/null || true
+S6_YAML_OUT="${TEMP_ROOT}/s6-yaml.jsonl"
+
+test_s6_yaml_secret_detection() {
+  run_scanner "${S6_YAML}" "${S6_YAML_OUT}" "${TEMP_ROOT}/s6-yaml.stderr" || return 1
+  local score
+  score="$(extract_check_score "${S6_YAML_OUT}" "S6")" || { TEST_ERROR="S6 not found"; return 1; }
+  if [ "$score" != "0" ]; then
+    TEST_ERROR="S6 should flag hardcoded secret in YAML (got ${score})"
+    return 1
+  fi
+  local detail
+  detail="$(jq -r 'select(.check_id == "S6") | .detail' "${S6_YAML_OUT}")" || { TEST_ERROR="S6 detail not found"; return 1; }
+  if [[ "$detail" != *"deploy.yml"* ]]; then
+    TEST_ERROR="S6 detail should mention deploy.yml as example (got ${detail})"
+    return 1
+  fi
+}
+
+run_test "S6: secret in YAML config flags and populates examples without crashing" test_s6_yaml_secret_detection
+
 # ── S7: test fixtures excluded ──
 
 S7_FIX="${TEMP_ROOT}/s7-fix"

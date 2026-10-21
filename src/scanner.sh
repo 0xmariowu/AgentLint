@@ -1652,8 +1652,9 @@ WF2
     if [ "${secret_hits:-0}" -gt 0 ]; then
       secret_examples="$(git -C "$project_dir" grep -lE \
         'sk-[a-zA-Z0-9]{48,}|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|AKIA[0-9A-Z]{16}|-----BEGIN.*(PRIVATE|RSA|EC) KEY' \
-        -- '*.js' '*.ts' '*.py' '*.rb' '*.go' '*.rs' '*.java' '*.sh' \
-        2>/dev/null | grep -v 'node_modules\|\.git\|vendor' | head -3 | tr '\n' ', ' | sed 's/, $//')"
+        -- '*.js' '*.ts' '*.py' '*.rb' '*.go' '*.rs' '*.java' '*.sh' '*.yml' '*.yaml' '*.json' '*.toml' '*.env' '*.env.*' \
+        ':!*.lock' \
+        2>/dev/null | grep -Ev 'node_modules|\.git/|vendor/|dist/|build/|__pycache__' | head -3 | tr '\n' ', ' | sed 's/, $//')" || secret_examples=""
     fi
   fi
   if [ "${secret_hits:-0}" -eq 0 ]; then
@@ -1677,7 +1678,7 @@ WF2
       path_examples="$(git -C "$project_dir" grep -lE '/Users/[a-zA-Z]|/home/[a-z][a-z0-9_-]+/' \
         -- '*.js' '*.ts' '*.py' '*.rb' '*.go' '*.rs' '*.java' '*.sh' '*.yml' '*.yaml' '*.json' '*.toml' \
         ':!.gitleaks.toml' ':!.gitignore' ':!*.example' ':!standards/*' ':!tests/*' ':!test/*' ':!fixtures/*' ':!testdata/*' ':!*.test.*' ':!*.spec.*' ':!*.snap' ':!*.min.js' ':!coverage/*' \
-        2>/dev/null | grep -Ev 'node_modules|\.git/|vendor/|dist/|build/|__tests__/' | head -3 | tr '\n' ', ' | sed 's/, $//')"
+        2>/dev/null | grep -Ev 'node_modules|\.git/|vendor/|dist/|build/|__tests__/' | head -3 | tr '\n' ', ' | sed 's/, $//')" || path_examples=""
     fi
   fi
   if [ "${path_hits:-0}" -eq 0 ]; then
